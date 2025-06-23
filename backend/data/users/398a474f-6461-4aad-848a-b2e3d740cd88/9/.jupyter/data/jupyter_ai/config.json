@@ -1,0 +1,12 @@
+{
+    "model_provider_id": "gpt4all:orca-mini-3b-gguf2-q4_0",
+    "embeddings_provider_id": null,
+    "send_with_shift_enter": false,
+    "fields": {
+        "gpt4all:orca-mini-3b-gguf2-q4_0": {}
+    },
+    "api_keys": {},
+    "completions_model_provider_id": null,
+    "completions_fields": {},
+    "embeddings_fields": {}
+}

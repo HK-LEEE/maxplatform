@@ -1,0 +1,13 @@
+{
+  "base_url": "/",
+  "hostname": "0.0.0.0",
+  "password": false,
+  "pid": 8172,
+  "port": 8945,
+  "root_dir": "C:\\ipynb_workspace\\backend\\data\\users\\398a474f-6461-4aad-848a-b2e3d740cd88\\9",
+  "secure": false,
+  "sock": "",
+  "token": "",
+  "url": "http://DESKTOP-I07869N:8945/",
+  "version": "2.16.0"
+}

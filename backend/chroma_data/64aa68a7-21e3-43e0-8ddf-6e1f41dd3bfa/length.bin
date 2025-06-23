@@ -1,0 +1,99 @@
+expand(padding_length.size(0), -1) < padding_length.unsqueeze(1)
+        return hidden_states, pad_mask.unsqueeze(1)
+
+
+class Phi4MultimodalAudioRelativeAttentionBias(nn.Module):
+    def __init__(self, config: Phi4MultimodalAudioConfig):
+        super().__init__()
+
+        self.max_distance = config.bias_max_distance
+        self.symmetric = config.bias_symmetric
+        self.num_buckets = self.max_distance
+        if not config.bias_symmetric:
+            self.num_buckets *= 2
+        self.bias_values = nn.Embedding(self.num_buckets, config.num_attention_heads)
+
+    def forward(self, x):
+        # instantiate bias compatible with shape of x
+        max_pos = x.size(1)
+        context_position = torch.arange(max_pos, device=x.device, dtype=torch.long)[:, None]
+        memory_position = torch.arange(max_pos, device=x.device, dtype=torch.long)[None, :]
+        relative_position = memory_position - context_position
+        # clipping to a maximum distance using ops that play well with ONNX export
+        relative_position = relative_position.masked_fill(relative_position < -self.max_distance, -self.max_distance)
+        relative_position = relative_position.masked_fill(
+            relative_position > self.max_distance - 1, self.max_distance - 1
+        )
+
+        # mapping from relative position to index in the bias parameter
+        bias_idx = relative_position
+        bias_idx = bias_idx.abs() if self.symmetric else bias_idx + self.num_buckets // 2
+
+        att_bias = self.bias_values(bias_idx)
+        att_bias = att_bias.permute(2, 0, 1).unsqueeze(0)
+
+        return att_bias
+
+
+class Phi4MultimodalAudioMeanVarianceNormLayer(nn.Module):
+    def __init__(self, config: Phi4MultimodalAudioConfig):
+        super().__init__()
+        self.register_buffer("global_mean", torch.zeros(config.input_size))
+        self.register_buffer("global_invstd", torch.ones(config.input_size))
+
+    def forward(self, x):
+        return (x - self.global_mean) * self.global_invstd
+
+
+@auto_docstring
+class Phi4MultimodalAudioPreTrainedModel(PreTrainedModel):
+    config_class = Phi4MultimodalAudioConfig
+    supports_gradient_checkpointing = True
+    _no_split_modules = ["Phi4MultimodalAudioConformerEncoderLayer"]
+    _supports_flash_attn_2 = True
+    _supports_sdpa = True
+    _supports_flex_attn = True
+
+    def _init_weights(self, module):
+        std = self.config.initializer_range
+        if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d)):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+        elif isinstance(module, Phi4MultimodalAudioGluPointWiseConv):
+            module.b1.data.zero_()
+            module.b2.data.zero_()
+
+
+def unfold_tensor(tensor, max_seq_len):
+    """
+    For a given tensor with shape of (N, T, D), if sequence length T is longer than max_seq_len,
+    this function unfold it to a (NT', max_seq_len, D) where T' is T // max_seq_len.
+    Args:
+        tensor: N, T, D
+    """
+    _, _, D = tensor.shape
+    tensor = tensor.transpose(-1, -2)
+    # N x D x 1 x T => N x (D x max_seq_len) x T'
+    tensor = F.unfold(tensor[..., None, :], kernel_size=(1, max_seq_len), stride=(1, max_seq_len))
+
+    new_bsz, _, slen = tensor.shape
+    tensor = tensor.view(new_bsz, -1, max_seq_len, slen)
+    tensor = tensor.permute(0, 3, 2, 1)
+    tensor = tensor.view(-1, max_seq_len, D).contiguous()
+    return tensor
+
+
+def adaptive_enc_mask(x_len, chunk_start_idx, left_window=0, right_window=0):
+    """
+    The function is very important for Transformer Transducer Streaming mode
+    Args:
+        xs_len (int): sequence length
+        

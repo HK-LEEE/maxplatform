@@ -1,0 +1,55 @@
+## 1. Poppler 설치 (필수)
+
+### 방법 1: 직접 다운로드 (권장)
+
+1. **Poppler 다운로드**
+   - https://github.com/oschwartz10612/poppler-windows/releases/ 에서 최신 버전 다운로드
+   - `poppler-xx.xx.x_x64.7z` 파일 다운로드
+
+2. **압축 해제**
+   ```
+   C:\poppler\
+   ├── bin\
+   ├── include\
+   ├── lib\
+   └── share\
+   ```
+
+3. **환경 변수 설정**
+   - 시스템 환경 변수 편집
+   - Path에 `C:\poppler\bin` 추가
+
+4. **설치 확인**
+   ```cmd
+   pdftoppm -h
+
+
+
+
+## 2. Tesseract OCR 설치
+
+### 직접 설치
+
+1. **Tesseract 다운로드**
+   - https://github.com/UB-Mannheim/tesseract/wiki 에서 Windows 설치 파일 다운로드
+   - `tesseract-ocr-w64-setup-v5.x.x.exe` 실행
+
+2. **설치 시 주의사항**
+   - "Additional language data" 선택 시 Korean 체크
+   - 설치 경로 기억 (보통 `C:\Program Files\Tesseract-OCR`)
+
+3. **환경 변수 설정**
+   - Path에 `C:\Program Files\Tesseract-OCR` 추가
+
+4. **설치 확인**
+   ```cmd
+   tesseract --version
+   tesseract --list-langs
+   ```
+
+## 3. Python 의존성 설치
+
+```cmd
+cd backend
+pip install pytesseract==0.3.10 Pillow==10.0.1 pdf2image==1.16.3
+```

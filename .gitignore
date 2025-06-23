@@ -1,0 +1,78 @@
+# --------------------------------------------------- #
+# 일반적인 운영체제 및 IDE 관련 파일                  #
+# --------------------------------------------------- #
+.DS_Store             # macOS 관련
+Thumbs.db             # Windows 관련
+.idea/                # IntelliJ IDEA
+.vscode/              # VS Code
+*.iml                 # IntelliJ IDEA 모듈 파일
+
+# --------------------------------------------------- #
+# Python (백엔드) 관련                                #
+# --------------------------------------------------- #
+# 가상 환경 (일반적으로 프로젝트 루트 또는 'backend' 디렉토리 내)
+.venv/
+venv/
+env/
+
+# 컴파일된 Python 파일
+*.pyc
+__pycache__/
+
+# 로그 파일
+*.log
+
+# 데이터베이스 파일 (SQLite 등)
+#*.sqlite3
+#db.sqlite3
+
+# 환경 변수 파일 (민감한 정보 포함 가능성)
+.env
+.env.local
+.env.*.local           # 예: .env.development.local
+
+# 빌드 및 배포 관련
+dist/
+build/
+*.egg-info/
+
+# --------------------------------------------------- #
+# Node.js (프론트엔드) 관련                           #
+# --------------------------------------------------- #
+# 의존성 모듈
+node_modules/
+
+# 빌드 결과물 (일반적으로 'build', 'dist', 'out' 등으로 생성)
+build/
+dist/
+out/
+public/build/         # React/Vue 등의 SPA 빌드 시
+.next/                # Next.js
+.nuxt/                # Nuxt.js
+
+# 로그 및 캐시 파일
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+*.tgz
+
+# 환경 변수 파일 (프론트엔드용)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 테스트 커버리지 보고서
+coverage/
+
+# --------------------------------------------------- #
+# 기타 공통 또는 프로젝트 특정 파일                   #
+# --------------------------------------------------- #
+# 압축 파일
+#*.zip
+#*.tar.gz
+
+# 민감한 설정 파일 (프로젝트에 따라 추가)
+config/local.py       # 예: Python 설정 파일

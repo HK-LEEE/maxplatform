@@ -1,0 +1,47 @@
+{
+  "name": "MAX-frontend",
+  "version": "0.1.0",
+  "description": "MAX - Manufacturing Artificial Intelligence & DX Platform Frontend",
+  "private": true,
+  "dependencies": {
+    "@xyflow/react": "^12.6.0",
+    "axios": "^1.6.0",
+    "clsx": "^2.0.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.3.8",
+    "react-hook-form": "^7.48.0",
+    "react-hot-toast": "^2.5.2",
+    "react-query": "^3.39.3",
+    "react-router-dom": "^6.28.0",
+    "tailwindcss": "^3.3.6"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.1.1",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "typescript": "^5.2.0",
+    "vite": "^5.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite --host 0.0.0.0 --port 3000"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

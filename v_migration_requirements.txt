@@ -1,0 +1,26 @@
+# MySQL to MSSQL Migration Requirements
+# Required Python packages for database migration
+
+# MySQL Database Connector
+PyMySQL==1.1.0
+
+# MSSQL Database Connector
+pyodbc==4.0.39
+
+# Additional utilities for data handling
+python-dateutil==2.8.2
+
+# For JSON handling and logging
+jsonschema==4.19.0
+
+# For environment variable handling
+python-dotenv==1.0.0
+
+# For progress tracking (optional)
+tqdm==4.66.1
+
+# For data validation
+pandas==2.0.3
+
+# For configuration management
+configparser==6.0.0 

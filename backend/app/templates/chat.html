@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Chat Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-header {
+            background: #f8f9fa;
+            border-bottom: 1px solid #e1e5e9;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .header-title {
+            font-weight: 600;
+            color: #1a73e8;
+            font-size: 16px;
+        }
+
+        .provider-select, .model-select {
+            padding: 6px 10px;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            background: white;
+            font-size: 13px;
+            min-width: 120px;
+        }
+
+        .actions-bar {
+            background: #f8f9fa;
+            border-bottom: 1px solid #e1e5e9;
+            padding: 8px 16px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-btn {
+            padding: 8px 16px;
+            border: 1px solid #1a73e8;
+            border-radius: 20px;
+            background: white;
+            color: #1a73e8;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .action-btn:disabled {
+            background: #f8f9fa;
+            color: #9aa0a6;
+            border-color: #dadce0;
+            cursor: not-allowed;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: #ffffff;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message.user {
+            align-items: flex-end;
+        }
+
+        .message.assistant {
+            align-items: flex-start;
+        }
+
+        .message-content {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: #1a73e8;
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .message.assistant .message-content {
+            background: #f1f3f4;
+            color: #3c4043;
+            border-bottom-left-radius: 6px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: #9aa0a6;
+            margin-top: 4px;
+            margin-left: 16px;
+            margin-right: 16px;
+        }
+
+        .input-container {
+            background: #f8f9fa;
+            border-top: 1px solid #e1e5e9;
+            padding: 16px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #dadce0;
+            border-radius: 24px;
+            font-size: 14px;
+            resize: none;
+            min-height: 44px;
+            max-height: 120px;
+            background: white;
+            font-family: inherit;
+        }
+
+        .message-input:focus {
+            outline: none;
+            border-color: #1a73e8;
+            box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1);
+        }
+
+        .send-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 24px;
+            background: #1a73e8;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            height: 44px;
+        }
+
+        .send-btn:hover {
+            background: #1557b0;
+        }
+
+        .send-btn:disabled {
+            background: #dadce0;
+            cursor: not-allowed;
+        }
+
+        .typing-indicator {
+            display: none;
+            color: #9aa0a6;
+            font-style: italic;
+            padding: 8px 16px;
+        }
+
+        .error-message {
+            background: #fce8e6;
+            color: #d93025;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 8px 16px;
+            font-size: 13px;
+        }
+
+        /* 스크롤바 스타일링 */
+        .messages-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb {
+            background: #dadce0;
+            border-radius: 3px;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb:hover {
+            background: #bdc1c6;
+        }
+
+        /* 반응형 디자인 */
+        @media (max-width: 600px) {
+            .chat-header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+
+            .actions-bar {
+                flex-direction: column;
+            }
+
+            .message-content {
+                max-width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <span class="header-title">🤖 LLM Chat Assistant</span>
+            
+            <label for="provider-select">Provider:</label>
+            <select id="provider-select" class="provider-select">
+                <option value="ollama">Ollama (Local)</option>
+                <option value="azure">Azure OpenAI</option>
+            </select>
+            
+            <label for="model-select">Model:</label>
+            <select id="model-select" class="model-select">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <div class="actions-bar">
+            <button id="analyze-btn" class="action-btn">📊 코드 분석</button>
+            <button id="improve-btn" class="action-btn">🔧 코드 개선</button>
+            <button id="clear-btn" class="action-btn">🗑️ 대화 지우기</button>
+        </div>
+
+        <div class="messages-container" id="messages-container">
+            <div class="message assistant">
+                <div class="message-content">
+                    안녕하세요! 👋 저는 여러분의 코드 분석과 개선을 도와드리는 LLM 어시스턴트입니다.
+                    
+                    💡 사용 방법:
+                    • 📊 코드 분석: 현재 Jupyter 셀의 코드를 분석합니다
+                    • 🔧 코드 개선: 코드 개선 제안을 제공합니다
+                    • 💬 자유롭게 질문하세요!
+                    
+                    무엇을 도와드릴까요?
+                </div>
+                <div class="message-time" id="welcome-time"></div>
+            </div>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator">
+            AI가 응답을 생성 중입니다...
+        </div>
+
+        <div class="input-container">
+            <textarea 
+                id="message-input" 
+                class="message-input" 
+                placeholder="메시지를 입력하세요... (Shift+Enter: 줄바꿈, Enter: 전송)"
+                rows="1"
+            ></textarea>
+            <button id="send-btn" class="send-btn">전송</button>
+        </div>
+    </div>
+
+    <script>
+        // 전역 변수
+        let currentProvider = 'ollama';
+        let currentModel = '';
+        let chatHistory = [];
+
+        // DOM 요소
+        const messagesContainer = document.getElementById('messages-container');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const providerSelect = document.getElementById('provider-select');
+        const modelSelect = document.getElementById('model-select');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const improveBtn = document.getElementById('improve-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        // 시간 표시 설정
+        document.getElementById('welcome-time').textContent = new Date().toLocaleTimeString();
+
+        // 이벤트 리스너
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keydown', handleKeydown);
+        providerSelect.addEventListener('change', onProviderChange);
+        analyzeBtn.addEventListener('click', analyzeCode);
+        improveBtn.addEventListener('click', improveCode);
+        clearBtn.addEventListener('click', clearChat);
+
+        // 자동 높이 조절
+        messageInput.addEventListener('input', autoResize);
+
+        function autoResize() {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+        }
+
+        function handleKeydown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function loadProviders() {
+            try {
+                const token = getAuthToken();
+                const response = await fetch('/api/llm/providers', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateProviderSelect(data.providers);
+                }
+            } catch (error) {
+                console.error('Failed to load providers:', error);
+                showError('LLM 제공자 목록을 로드할 수 없습니다.');
+            }
+        }
+
+        function updateProviderSelect(providers) {
+            providerSelect.innerHTML = '';
+            providers.forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider.name;
+                option.textContent = provider.display_name;
+                option.disabled = !provider.available;
+                if (!provider.available && provider.reason) {
+                    option.title = provider.reason;
+                }
+                providerSelect.appendChild(option);
+            });
+
+            const availableProvider = providers.find(p => p.available);
+            if (availableProvider) {
+                currentProvider = availableProvider.name;
+                providerSelect.value = availableProvider.name;
+                loadModels();
+            }
+        }
+
+        async function onProviderChange() {
+            currentProvider = providerSelect.value;
+            await loadModels();
+        }
+
+        async function loadModels() {
+            try {
+                const token = getAuthToken();
+                const response = await fetch(`/api/llm/models?provider=${currentProvider}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateModelSelect(data.models);
+                }
+            } catch (error) {
+                console.error('Failed to load models:', error);
+            }
+        }
+
+        function updateModelSelect(models) {
+            modelSelect.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+
+            if (models.length > 0) {
+                currentModel = models[0];
+                modelSelect.value = models[0];
+            }
+        }
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessage('user', message);
+            messageInput.value = '';
+            autoResize();
+            setLoading(true);
+
+            try {
+                const response = await fetch('/api/llm/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    body: JSON.stringify({
+                        messages: chatHistory,
+                        provider: currentProvider,
+                        model: currentModel || undefined,
+                        stream: false
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    addMessage('assistant', data.content);
+                } else {
+                    throw new Error('Failed to get response');
+                }
+            } catch (error) {
+                console.error('Failed to send message:', error);
+                addMessage('assistant', '⚠️ 메시지 전송에 실패했습니다.');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function analyzeCode() {
+            const code = await getCurrentCellCode();
+            if (!code) {
+                addMessage('assistant', '⚠️ 분석할 코드가 없습니다. Jupyter 셀에 코드를 작성해주세요.');
+                return;
+            }
+
+            setLoading(true);
+            analyzeBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/llm/analyze-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    body: JSON.stringify({
+                        code: code,
+                        file_type: 'python',
+                        provider: currentProvider,
+                        model: currentModel || undefined
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    addMessage('assistant', `📊 **코드 분석 결과:**\n\n${data.analysis}`);
+                } else {
+                    throw new Error('Failed to analyze code');
+                }
+            } catch (error) {
+                console.error('Failed to analyze code:', error);
+                addMessage('assistant', '⚠️ 코드 분석에 실패했습니다.');
+            } finally {
+                setLoading(false);
+                analyzeBtn.disabled = false;
+            }
+        }
+
+        async function improveCode() {
+            const code = await getCurrentCellCode();
+            if (!code) {
+                addMessage('assistant', '⚠️ 개선할 코드가 없습니다. Jupyter 셀에 코드를 작성해주세요.');
+                return;
+            }
+
+            setLoading(true);
+            improveBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/llm/improve-code', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getAuthToken()}`
+                    },
+                    body: JSON.stringify({
+                        code: code,
+                        file_type: 'python',
+                        provider: currentProvider,
+                        model: currentModel || undefined
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    addMessage('assistant', `🔧 **코드 개선 제안:**\n\n${data.improvement}`);
+                } else {
+                    throw new Error('Failed to improve code');
+                }
+            } catch (error) {
+                console.error('Failed to improve code:', error);
+                addMessage('assistant', '⚠️ 코드 개선에 실패했습니다.');
+            } finally {
+                setLoading(false);
+                improveBtn.disabled = false;
+            }
+        }
+
+        function addMessage(role, content) {
+            const message = { role, content };
+            chatHistory.push(message);
+
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${role}`;
+
+            const contentEl = document.createElement('div');
+            contentEl.className = 'message-content';
+            contentEl.textContent = content;
+
+            const timeEl = document.createElement('div');
+            timeEl.className = 'message-time';
+            timeEl.textContent = new Date().toLocaleTimeString();
+
+            messageEl.appendChild(contentEl);
+            messageEl.appendChild(timeEl);
+            messagesContainer.appendChild(messageEl);
+
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function setLoading(loading) {
+            sendBtn.disabled = loading;
+            typingIndicator.style.display = loading ? 'block' : 'none';
+            if (loading) {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        }
+
+        function clearChat() {
+            if (confirm('대화 내역을 모두 지우시겠습니까?')) {
+                chatHistory = [];
+                messagesContainer.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            대화가 초기화되었습니다. 새로운 질문을 해주세요! 😊
+                        </div>
+                        <div class="message-time">${new Date().toLocaleTimeString()}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function getCurrentCellCode() {
+            // 부모 윈도우(Jupyter Lab)에서 현재 셀의 코드를 가져오기
+            return new Promise((resolve) => {
+                try {
+                    if (window.parent && window.parent !== window) {
+                        // iframe에서 실행 중인 경우, postMessage를 통해 부모에서 코드 요청
+                        window.parent.postMessage({
+                            type: 'GET_CURRENT_CELL_CODE'
+                        }, '*');
+                        
+                        // 응답 대기
+                        const messageHandler = (event) => {
+                            if (event.data.type === 'CURRENT_CELL_CODE_RESPONSE') {
+                                window.removeEventListener('message', messageHandler);
+                                resolve(event.data.code || '');
+                            }
+                        };
+                        
+                        window.addEventListener('message', messageHandler);
+                        
+                        // 3초 타임아웃
+                        setTimeout(() => {
+                            window.removeEventListener('message', messageHandler);
+                            // 수동 입력으로 폴백
+                            const code = prompt('현재 분석/개선하고 싶은 코드를 붙여넣어주세요:');
+                            resolve(code || '');
+                        }, 3000);
+                    } else {
+                        // 직접 접근한 경우
+                        const code = prompt('분석/개선하고 싶은 코드를 붙여넣어주세요:');
+                        resolve(code || '');
+                    }
+                } catch (error) {
+                    console.error('Failed to get current cell code:', error);
+                    const code = prompt('분석/개선하고 싶은 코드를 붙여넣어주세요:');
+                    resolve(code || '');
+                }
+            });
+        }
+
+        function getAuthToken() {
+            // 실제 구현에서는 적절한 방법으로 토큰을 가져와야 함
+            return localStorage.getItem('token') || 'dummy-token';
+        }
+
+        function showError(message) {
+            const errorEl = document.createElement('div');
+            errorEl.className = 'error-message';
+            errorEl.textContent = message;
+            messagesContainer.appendChild(errorEl);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProviders();
+            messageInput.focus();
+        });
+    </script>
+</body>
+</html> 

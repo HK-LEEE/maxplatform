@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin API 테스트</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        .success { color: green; }
+        .error { color: red; }
+        pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>관리자 API 테스트</h1>
+    
+    <div class="section">
+        <h2>1. 관리자 로그인</h2>
+        <p>이메일: admin@test.com</p>
+        <p>비밀번호: admin123!</p>
+        <button onclick="loginAdmin()">관리자 로그인</button>
+        <div id="loginResult"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. Admin API 테스트</h2>
+        <button onclick="testAdminStats()">통계 조회</button>
+        <button onclick="testAdminUsers()">사용자 목록</button>
+        <button onclick="testAdminPermissions()">권한 목록</button>
+        <button onclick="testAdminFeatures()">기능 목록</button>
+        <div id="apiResult"></div>
+    </div>
+
+    <script>
+        let authToken = null;
+
+        async function loginAdmin() {
+            try {
+                const response = await fetch('http://localhost:8000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@test.com',
+                        password: 'admin123!'
+                    })
+                });
+
+                const result = await response.json();
+                const loginDiv = document.getElementById('loginResult');
+
+                if (response.ok) {
+                    authToken = result.access_token;
+                    loginDiv.innerHTML = `
+                        <div class="success">
+                            <h3>로그인 성공!</h3>
+                            <p>사용자: ${result.user.real_name}</p>
+                            <p>관리자: ${result.user.is_admin ? '예' : '아니오'}</p>
+                            <p>활성화: ${result.user.is_active ? '예' : '아니오'}</p>
+                            <pre>토큰: ${authToken.substring(0, 50)}...</pre>
+                        </div>
+                    `;
+                } else {
+                    loginDiv.innerHTML = `<div class="error">로그인 실패: ${result.detail}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('loginResult').innerHTML = 
+                    `<div class="error">오류: ${error.message}</div>`;
+            }
+        }
+
+        async function testAdminAPI(endpoint, name) {
+            if (!authToken) {
+                alert('먼저 로그인하세요.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:8000${endpoint}`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                const apiDiv = document.getElementById('apiResult');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    apiDiv.innerHTML = `
+                        <div class="success">
+                            <h3>${name} 성공!</h3>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    const errorText = await response.text();
+                    apiDiv.innerHTML = `
+                        <div class="error">
+                            <h3>${name} 실패!</h3>
+                            <p>Status: ${response.status}</p>
+                            <pre>${errorText}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('apiResult').innerHTML = 
+                    `<div class="error">${name} 오류: ${error.message}</div>`;
+            }
+        }
+
+        function testAdminStats() {
+            testAdminAPI('/admin/stats', '통계 조회');
+        }
+
+        function testAdminUsers() {
+            testAdminAPI('/admin/users', '사용자 목록');
+        }
+
+        function testAdminPermissions() {
+            testAdminAPI('/admin/permissions', '권한 목록');
+        }
+
+        function testAdminFeatures() {
+            testAdminAPI('/admin/features', '기능 목록');
+        }
+    </script>
+</body>
+</html> 

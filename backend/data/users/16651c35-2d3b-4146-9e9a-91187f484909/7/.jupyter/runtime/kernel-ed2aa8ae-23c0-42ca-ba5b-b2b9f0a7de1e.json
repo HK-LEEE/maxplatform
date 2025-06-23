@@ -1,0 +1,13 @@
+{
+  "shell_port": 6329,
+  "iopub_port": 6330,
+  "stdin_port": 6331,
+  "control_port": 6333,
+  "hb_port": 6332,
+  "ip": "127.0.0.1",
+  "key": "8e638301-e4abe5a7ec286ab91d2a3605",
+  "transport": "tcp",
+  "signature_scheme": "hmac-sha256",
+  "kernel_name": "python3",
+  "jupyter_session": "C:\\ipynb_workspace\\backend\\data\\users\\16651c35-2d3b-4146-9e9a-91187f484909\\7\\Untitled.ipynb"
+}

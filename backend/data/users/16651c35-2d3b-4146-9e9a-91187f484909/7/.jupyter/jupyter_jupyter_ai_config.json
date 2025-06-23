@@ -1,0 +1,10 @@
+{
+  "AiExtension": {
+    "default_language_model": "gpt4all:orca-mini-3b-gguf2-q4_0",
+    "allowed_providers": [
+      "gpt4all"
+    ],
+    "default_max_chat_history": 10,
+    "model_parameters": {}
+  }
+}

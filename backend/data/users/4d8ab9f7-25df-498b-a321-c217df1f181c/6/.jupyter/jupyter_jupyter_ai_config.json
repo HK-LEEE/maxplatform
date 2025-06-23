@@ -1,0 +1,16 @@
+{
+  "AiExtension": {
+    "default_language_model": "gpt4all:orca-mini-3b-gguf2-q4_0",
+    "allowed_providers": [
+      "gpt4all",
+      "ollama"
+    ],
+    "default_max_chat_history": 10,
+    "model_parameters": {
+      "ollama:llama3.2": {
+        "temperature": 0.7,
+        "max_tokens": 1000
+      }
+    }
+  }
+}
