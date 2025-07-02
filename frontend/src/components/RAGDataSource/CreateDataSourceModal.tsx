@@ -10,7 +10,7 @@ import { CreateDataSourceData } from '../../types/ragDataSource';
 
 // 그룹 타입 정의
 interface Group {
-  id: number;
+  id: string;
   name: string;
   description?: string;
 }
@@ -31,7 +31,7 @@ const CreateDataSourceModal: React.FC<CreateDataSourceModalProps> = ({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [ownerType, setOwnerType] = useState<'USER' | 'GROUP'>('USER');
-  const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>();
+  const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
   const [nameError, setNameError] = useState<string>('');
 
   // 영어 이름 검증 함수
@@ -225,7 +225,7 @@ const CreateDataSourceModal: React.FC<CreateDataSourceModalProps> = ({
               </label>
               <select
                 value={selectedGroupId || ''}
-                onChange={(e) => setSelectedGroupId(Number(e.target.value))}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
                 required
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isLoading}

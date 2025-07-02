@@ -197,7 +197,7 @@ class UserUpdateRequest(BaseModel):
     department: str = ""
     position: str = ""
     bio: str = ""
-    group_id: Optional[int] = None
+    group_id: Optional[str] = None
 
 class UserPasswordChangeRequest(BaseModel):
     user_id: str
@@ -258,16 +258,16 @@ class GroupUpdateRequest(BaseModel):
     description: str = ""
 
 class GroupPermissionRequest(BaseModel):
-    group_id: int
+    group_id: str
     permission_ids: List[int]
 
 class GroupFeatureRequest(BaseModel):
-    group_id: int
+    group_id: str
     feature_ids: List[int]
 
 class UserGroupRequest(BaseModel):
     user_id: str
-    group_id: Optional[int] = None
+    group_id: Optional[str] = None
 
 class GroupUserResponse(BaseModel):
     id: str
@@ -290,7 +290,7 @@ class GroupUserResponse(BaseModel):
         from_attributes = True
 
 class GroupDetailResponse(BaseModel):
-    id: int
+    id: str
     name: str
     description: Optional[str] = None
     created_by: str
@@ -1237,7 +1237,7 @@ async def get_groups(
             ))
         
         result.append(GroupDetailResponse(
-            id=group.id,
+            id=str(group.id),
             name=group.name,
             description=group.description or "",
             created_by=group.creator.real_name if group.creator else "알 수 없음",
@@ -1252,7 +1252,7 @@ async def get_groups(
 
 @router.get("/groups/{group_id}", response_model=GroupDetailResponse)
 async def get_group_detail(
-    group_id: int,
+    group_id: str,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
@@ -1271,7 +1271,7 @@ async def get_group_detail(
         )
     
     return GroupDetailResponse(
-        id=group.id,
+        id=str(group.id),
         name=group.name,
         description=group.description or "",
         created_by=group.creator.real_name if group.creator else "알 수 없음",
@@ -1324,7 +1324,7 @@ async def create_group(
     db.refresh(group)
     
     return GroupDetailResponse(
-        id=group.id,
+        id=str(group.id),
         name=group.name,
         description=group.description or "",
         created_by=current_admin.real_name,
@@ -1336,7 +1336,7 @@ async def create_group(
 
 @router.put("/groups/{group_id}", response_model=GroupDetailResponse)
 async def update_group(
-    group_id: int,
+    group_id: str,
     request: GroupUpdateRequest,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
@@ -1370,7 +1370,7 @@ async def update_group(
     db.refresh(group)
     
     return GroupDetailResponse(
-        id=group.id,
+        id=str(group.id),
         name=group.name,
         description=group.description or "",
         created_by=group.creator.real_name if group.creator else "알 수 없음",
@@ -1399,7 +1399,7 @@ async def update_group(
 
 @router.delete("/groups/{group_id}")
 async def delete_group(
-    group_id: int,
+    group_id: str,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):

@@ -11,53 +11,38 @@ import RAGDataSourcePage from './pages/RAGDataSourcePage'
 import FlowStudioPage from './pages/FlowStudioPage'
 import MainLayout from './components/Layout/MainLayout'
 import DashboardPage from './pages/DashboardPage'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { Toaster } from 'react-hot-toast'
 import FlowStudioProjectsPage from './pages/FlowStudioProjectsPage'
 import FlowStudioWorkspacePage from './pages/FlowStudioWorkspacePage'
 import WorkspacesPage from './pages/WorkspacesPage'
 import ProfilePage from './pages/ProfilePage'
 import ChatPage from './pages/ChatPage'
+import OAuthCallback from './pages/OAuthCallback'
 
 
 
 // 인증 체크 컴포넌트
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const navigate = useNavigate()
-  const [isChecking, setIsChecking] = useState(true)
+  const { isAuthenticated, isLoading } = useAuth()
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) {
+    if (!isLoading && !isAuthenticated) {
       navigate('/login', { replace: true })
-    } else {
-      // 토큰이 있는 경우 유효성 검증
-      fetch('/api/auth/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-      .then(response => {
-        if (!response.ok) {
-          localStorage.removeItem('token')
-          navigate('/login', { replace: true })
-        } else {
-          setIsChecking(false)
-        }
-      })
-      .catch(() => {
-        localStorage.removeItem('token')
-        navigate('/login', { replace: true })
-      })
     }
-  }, [navigate])
+  }, [isAuthenticated, isLoading, navigate])
 
-  if (isChecking) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
+  }
+
+  if (!isAuthenticated) {
+    return null
   }
 
   return <>{children}</>
@@ -124,6 +109,7 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/oauth/callback" element={<OAuthCallback />} />
             
             {/* Protected Routes with Main Layout */}
             <Route path="/dashboard" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>

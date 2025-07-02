@@ -87,6 +87,7 @@ def create_all_tables():
 def create_initial_data():
     """기본 데이터 생성"""
     try:
+        import uuid
         from sqlalchemy.orm import sessionmaker
         from app.models.user import User, Role, Group
         from passlib.context import CryptContext
@@ -114,6 +115,7 @@ def create_initial_data():
         
         # 기본 그룹 생성 (created_by는 나중에 설정)
         default_group = Group(
+            id=str(uuid.uuid4()),
             name="default",
             description="기본 사용자 그룹"
         )

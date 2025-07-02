@@ -45,7 +45,7 @@ export interface CreateDataSourceData {
   name: string;
   description?: string;
   owner_type: 'USER' | 'GROUP';
-  group_id?: number;
+  group_id?: string;
   embedding_config?: any;
 }
 

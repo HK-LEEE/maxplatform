@@ -181,7 +181,7 @@ class ChatSearchResult(BaseModel):
 class FlowPublishAccessCreate(BaseModel):
     flow_id: str
     publish_scope: PublishScope
-    target_group_id: Optional[int] = None
+    target_group_id: Optional[str] = None
     target_user_id: Optional[str] = None
 
 class FlowPublishAccessResponse(BaseModel):
@@ -190,7 +190,7 @@ class FlowPublishAccessResponse(BaseModel):
     id: int
     flow_id: str
     publish_scope: PublishScope
-    target_group_id: Optional[int]
+    target_group_id: Optional[str]
     target_user_id: Optional[str]
     created_at: datetime
     

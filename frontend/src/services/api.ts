@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { User, Workspace, FileItem, JupyterStatus } from '../types'
 
-const API_BASE_URL = '/api'
+const API_BASE_URL = 'http://localhost:8000/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -116,9 +116,9 @@ api.interceptors.response.use(
 
 // 인증 API
 export const authAPI = {
-  login: async (username: string, password: string) => {
+  login: async (email: string, password: string) => {
     const response = await api.post('/auth/login', {
-      email: username,
+      email: email,
       password: password,
     })
     return response.data
@@ -139,23 +139,8 @@ export const authAPI = {
   },
 }
 
-// authApi alias for compatibility
-export const authApi = {
-  login: async (formData: { email: string; password: string }) => {
-    const response = await api.post('/auth/login', formData)
-    return response
-  },
-
-  register: async (formData: { username: string; email: string; password: string }) => {
-    const response = await api.post('/auth/register', formData)
-    return response
-  },
-
-  getMe: async (): Promise<User> => {
-    const response = await api.get('/auth/me')
-    return response.data
-  },
-}
+// authApi alias for compatibility with LoginPage
+export const authApi = authAPI
 
 // Services API for mother page
 export const servicesApi = {

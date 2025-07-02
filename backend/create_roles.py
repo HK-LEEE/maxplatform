@@ -5,6 +5,7 @@
 
 import sys
 import os
+import uuid
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from sqlalchemy.orm import Session
@@ -73,7 +74,10 @@ def create_groups(db: Session):
     for group_data in groups:
         existing = db.query(Group).filter(Group.name == group_data["name"]).first()
         if not existing:
-            group = Group(**group_data)
+            group = Group(
+                id=str(uuid.uuid4()),
+                **group_data
+            )
             db.add(group)
             print(f"그룹 생성: {group_data['display_name']}")
     

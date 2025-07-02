@@ -80,6 +80,7 @@ class UserCreate(BaseModel):
     password: str
     department: str = None  # 부서 (선택사항)
     position: str = None  # 직책 (선택사항)
+    group_id: str = None  # 그룹 ID (선택사항)
     requested_permissions: List[int] = []  # 요청하는 권한 ID 목록
     requested_features: List[int] = []  # 요청하는 기능 ID 목록
 
@@ -94,6 +95,11 @@ class PasswordReset(BaseModel):
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
+
+class AvailableGroup(BaseModel):
+    id: str
+    name: str
+    description: str = None
 
 class Token(BaseModel):
     access_token: str
@@ -245,6 +251,21 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
     return current_user
 
 # 라우트들
+@router.get("/available-groups", response_model=List[AvailableGroup])
+async def get_available_groups(db: Session = Depends(get_db)):
+    """회원가입 시 선택 가능한 그룹 목록 조회 (인증 불필요)"""
+    # 활성화된 그룹만 조회
+    groups = db.query(Group).filter(Group.is_active == True).all()
+    
+    return [
+        AvailableGroup(
+            id=str(group.id),
+            name=group.name,
+            description=group.description or ""
+        )
+        for group in groups
+    ]
+
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
     # 이메일 중복 확인
@@ -268,6 +289,30 @@ async def register(user_data: UserCreate, request: Request, db: Session = Depend
             detail="이미 등록된 휴대폰 번호입니다."
         )
     
+    # 그룹 유효성 검사 (그룹이 선택된 경우)
+    group_uuid = None
+    if user_data.group_id:
+        # 임시 그룹인 경우 None으로 처리 (나중에 관리자가 배정)
+        if user_data.group_id == "temp":
+            group_uuid = None
+        else:
+            try:
+                group_uuid = uuid_module.UUID(user_data.group_id)
+                group = db.query(Group).filter(
+                    Group.id == group_uuid,
+                    Group.is_active == True
+                ).first()
+                if not group:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="유효하지 않은 그룹입니다."
+                    )
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="올바르지 않은 그룹 ID 형식입니다."
+                )
+    
     # 사용자 생성
     hashed_password = get_password_hash(user_data.password)
     
@@ -279,6 +324,8 @@ async def register(user_data: UserCreate, request: Request, db: Session = Depend
         hashed_password=hashed_password,
         department=user_data.department,
         position=user_data.position,
+        group_id=group_uuid,  # 그룹 할당
+        is_active=False,  # 비활성화 상태로 시작 (관리자 승인 필요)
         is_verified=False,  # 이메일 인증 필요
         approval_status="pending"  # 관리자 승인 필요
     )

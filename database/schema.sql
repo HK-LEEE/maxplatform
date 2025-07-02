@@ -30,7 +30,7 @@ CREATE TABLE roles (
 
 -- Create groups table
 CREATE TABLE groups (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) UNIQUE NOT NULL,
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE,
@@ -85,7 +85,7 @@ CREATE TABLE users (
     
     -- Role and group assignments
     role_id INTEGER REFERENCES roles(id),
-    group_id INTEGER REFERENCES groups(id),
+    group_id UUID REFERENCES groups(id),
     
     -- Additional information
     department VARCHAR(100),
@@ -187,14 +187,14 @@ CREATE TABLE role_features (
 
 -- Group permissions
 CREATE TABLE group_permissions (
-    group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+    group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
     permission_id INTEGER REFERENCES permissions(id) ON DELETE CASCADE,
     PRIMARY KEY (group_id, permission_id)
 );
 
 -- Group features
 CREATE TABLE group_features (
-    group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+    group_id UUID REFERENCES groups(id) ON DELETE CASCADE,
     feature_id INTEGER REFERENCES features(id) ON DELETE CASCADE,
     PRIMARY KEY (group_id, feature_id)
 );
@@ -250,14 +250,14 @@ INSERT INTO roles (name, description) VALUES
 ('developer', 'Developer');
 
 -- Insert default groups
-INSERT INTO groups (name, description) VALUES 
-('Default Users', 'Default group for all users'),
-('Administrators', 'System administrators'),
-('IT Department', 'IT department members'),
-('HR Department', 'HR department members'),
-('Finance Department', 'Finance department members'),
-('Data Analysts', 'Data analysis team'),
-('Developers', 'Development team');
+INSERT INTO groups (id, name, description) VALUES 
+('00000000-0000-0000-0001-000000000001', 'Default Users', 'Default group for all users'),
+('00000000-0000-0000-0001-000000000002', 'Administrators', 'System administrators'),
+('00000000-0000-0000-0001-000000000003', 'IT Department', 'IT department members'),
+('00000000-0000-0000-0001-000000000004', 'HR Department', 'HR department members'),
+('00000000-0000-0000-0001-000000000005', 'Finance Department', 'Finance department members'),
+('00000000-0000-0000-0001-000000000006', 'Data Analysts', 'Data analysis team'),
+('00000000-0000-0000-0001-000000000007', 'Developers', 'Development team');
 
 -- Insert default permissions
 INSERT INTO permissions (name, display_name, description, category) VALUES 
@@ -351,7 +351,7 @@ VALUES (
     TRUE, 
     'approved',
     1, -- admin role
-    2, -- administrators group
+    '00000000-0000-0000-0001-000000000002', -- administrators group
     'IT',
     'System Administrator',
     0
@@ -371,7 +371,7 @@ VALUES
     TRUE, 
     'approved',
     2, -- user role
-    3, -- IT department
+    '00000000-0000-0000-0001-000000000003', -- IT department
     'IT',
     'Developer',
     0
@@ -387,7 +387,7 @@ VALUES
     TRUE, 
     'approved',
     4, -- analyst role
-    6, -- data analysts group
+    '00000000-0000-0000-0001-000000000006', -- data analysts group
     'Analytics',
     'Data Analyst',
     0

@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import uuid
 from datetime import datetime
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -385,6 +386,7 @@ def init_groups_and_roles(db: Session, admin_user: User):
         existing_group = db.query(Group).filter(Group.name == group_data["name"]).first()
         if not existing_group:
             group = Group(
+                id=str(uuid.uuid4()),
                 name=group_data["name"],
                 description=group_data["description"],
                 created_by=admin_user.id,

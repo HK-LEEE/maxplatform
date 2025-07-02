@@ -41,7 +41,7 @@ role_features = Table(
 group_permissions = Table(
     'group_permissions',
     Base.metadata,
-    Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True),
+    Column('group_id', UUID(as_uuid=True), ForeignKey('groups.id'), primary_key=True),
     Column('permission_id', Integer, ForeignKey('permissions.id'), primary_key=True),
     Column('granted_at', DateTime, default=func.now())
 )
@@ -49,7 +49,7 @@ group_permissions = Table(
 group_features = Table(
     'group_features',
     Base.metadata,
-    Column('group_id', Integer, ForeignKey('groups.id'), primary_key=True),
+    Column('group_id', UUID(as_uuid=True), ForeignKey('groups.id'), primary_key=True),
     Column('feature_id', Integer, ForeignKey('features.id'), primary_key=True),
     Column('granted_at', DateTime, default=func.now())
 ) 

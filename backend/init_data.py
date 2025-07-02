@@ -1,6 +1,7 @@
 """
 기본 데이터 초기화 스크립트
 """
+import uuid
 from app.database import get_db
 from app.models import User, Role, Permission, Feature, Group
 from sqlalchemy.orm import Session
@@ -102,6 +103,7 @@ def init_basic_data():
         default_group = db.query(Group).filter(Group.name == '기본 그룹').first()
         if not default_group:
             default_group = Group(
+                id=str(uuid.uuid4()),
                 name='기본 그룹',
                 description='모든 사용자의 기본 그룹',
                 created_by=admin_user.id,

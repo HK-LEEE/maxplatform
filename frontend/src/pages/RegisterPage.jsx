@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Users } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import GroupSelectionModal from '../components/GroupSelectionModal'
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -11,10 +13,13 @@ const RegisterPage = () => {
     password: '',
     confirmPassword: '',
     department: '',
-    position: ''
+    position: '',
+    group_id: ''
   })
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState(null)
+  const [showGroupModal, setShowGroupModal] = useState(false)
   
   const { register } = useAuth()
   const navigate = useNavigate()
@@ -24,6 +29,22 @@ const RegisterPage = () => {
       ...formData,
       [e.target.name]: e.target.value
     })
+  }
+
+  const handleGroupSelect = (group) => {
+    if (group) {
+      setSelectedGroup(group)
+      setFormData({
+        ...formData,
+        group_id: group.id
+      })
+    } else {
+      setSelectedGroup(null)
+      setFormData({
+        ...formData,
+        group_id: ''
+      })
+    }
   }
 
   const handleSubmit = async (e) => {
@@ -50,6 +71,12 @@ const RegisterPage = () => {
       return
     }
 
+    if (!formData.group_id) {
+      setError('그룹을 선택해주세요.')
+      setIsLoading(false)
+      return
+    }
+
     try {
       const submitData = {
         real_name: formData.real_name,
@@ -58,7 +85,8 @@ const RegisterPage = () => {
         phone_number: formData.phone_number,
         password: formData.password,
         department: formData.department,
-        position: formData.position
+        position: formData.position,
+        group_id: formData.group_id || null
       }
 
       const response = await fetch('http://localhost:8000/api/auth/register', {
@@ -85,26 +113,18 @@ const RegisterPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative overflow-hidden">
-      {/* 배경 장식 */}
-      <div className="absolute inset-0">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-pink-500/5"></div>
-        <div className="absolute top-20 left-20 w-72 h-72 bg-blue-400/10 rounded-full mix-blend-multiply filter blur-xl animate-pulse"></div>
-        <div className="absolute top-40 right-20 w-72 h-72 bg-purple-400/10 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-2000"></div>
-        <div className="absolute -bottom-32 left-1/2 transform -translate-x-1/2 w-96 h-96 bg-pink-400/10 rounded-full mix-blend-multiply filter blur-xl animate-pulse animation-delay-4000"></div>
-      </div>
-
-      <div className="relative z-10 min-h-screen flex flex-col">
+    <div className="min-h-screen bg-white">
+      <div className="min-h-screen flex flex-col">
         {/* 헤더 */}
-        <header className="bg-white/80 backdrop-blur-md shadow-lg border-b border-white/20">
+        <header className="bg-white border-b border-neutral-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center py-6">
               <Link to="/login" className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-                  <span className="text-white text-xl font-bold">G</span>
+                <div className="w-10 h-10 bg-neutral-900 rounded-xl flex items-center justify-center">
+                  <span className="text-white text-xl font-bold">M</span>
                 </div>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  MAX
+                <h1 className="text-2xl font-bold text-neutral-900">
+                  MAX Platform
                 </h1>
               </Link>
             </div>
@@ -115,204 +135,184 @@ const RegisterPage = () => {
         <div className="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8 py-12">
           <div className="max-w-lg w-full">
             {/* 회원가입 카드 */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/50 p-8 transform hover:scale-105 transition-all duration-300">
+            <div className="bg-white rounded-2xl shadow-lg border border-neutral-100 p-8">
               <div className="text-center mb-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                <h2 className="text-2xl font-bold text-neutral-900 mb-2">
                   회원가입
                 </h2>
-                <p className="text-gray-600">
-                  MAX 플랫폼에 가입하세요
+                <p className="text-neutral-600">
+                  MAX Platform에 가입하여 시작하세요
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-6">
                 {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl">
-                    <div className="flex items-center">
-                      <span className="text-red-500 mr-2">⚠️</span>
-                      {error}
-                    </div>
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                    {error}
                   </div>
                 )}
 
                 {/* 기본 정보 */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="real_name" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="real_name" className="block text-sm font-medium text-neutral-700 mb-2">
                       실명 *
                     </label>
-                    <div className="relative">
-                      <input
-                        id="real_name"
-                        name="real_name"
-                        type="text"
-                        required
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="실명"
-                        value={formData.real_name}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">👤</span>
-                      </div>
-                    </div>
+                    <input
+                      id="real_name"
+                      name="real_name"
+                      type="text"
+                      required
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="실명을 입력하세요"
+                      value={formData.real_name}
+                      onChange={handleChange}
+                    />
                   </div>
 
                   <div>
-                    <label htmlFor="display_name" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="display_name" className="block text-sm font-medium text-neutral-700 mb-2">
                       표시명
                     </label>
-                    <div className="relative">
-                      <input
-                        id="display_name"
-                        name="display_name"
-                        type="text"
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="표시명 (선택)"
-                        value={formData.display_name}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">✨</span>
-                      </div>
-                    </div>
+                    <input
+                      id="display_name"
+                      name="display_name"
+                      type="text"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="표시명 (선택)"
+                      value={formData.display_name}
+                      onChange={handleChange}
+                    />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="email" className="block text-sm font-medium text-neutral-700 mb-2">
                     이메일 *
                   </label>
-                  <div className="relative">
-                    <input
-                      id="email"
-                      name="email"
-                      type="email"
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                      placeholder="이메일을 입력하세요"
-                      value={formData.email}
-                      onChange={handleChange}
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                      <span className="text-gray-400">📧</span>
-                    </div>
-                  </div>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                    placeholder="이메일을 입력하세요"
+                    value={formData.email}
+                    onChange={handleChange}
+                  />
                 </div>
 
                 <div>
-                  <label htmlFor="phone_number" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="phone_number" className="block text-sm font-medium text-neutral-700 mb-2">
                     휴대폰 번호 *
                   </label>
-                  <div className="relative">
-                    <input
-                      id="phone_number"
-                      name="phone_number"
-                      type="tel"
-                      required
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                      placeholder="010-1234-5678"
-                      value={formData.phone_number}
-                      onChange={handleChange}
-                    />
-                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                      <span className="text-gray-400">📞</span>
+                  <input
+                    id="phone_number"
+                    name="phone_number"
+                    type="tel"
+                    required
+                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                    placeholder="010-1234-5678"
+                    value={formData.phone_number}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                {/* 그룹 선택 */}
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    그룹 선택 *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowGroupModal(true)}
+                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-left flex items-center justify-between hover:bg-neutral-50"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-4 h-4 text-neutral-400" />
+                      <span className={selectedGroup ? "text-neutral-900" : "text-neutral-500"}>
+                        {selectedGroup ? selectedGroup.name : "그룹을 선택하세요"}
+                      </span>
                     </div>
-                  </div>
+                    <span className="text-neutral-400 text-sm">클릭하여 선택</span>
+                  </button>
+                  {selectedGroup && selectedGroup.description && (
+                    <p className="text-sm text-neutral-600 mt-1">{selectedGroup.description}</p>
+                  )}
                 </div>
 
                 {/* 회사 정보 (선택) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="department" className="block text-sm font-medium text-neutral-700 mb-2">
                       부서
                     </label>
-                    <div className="relative">
-                      <input
-                        id="department"
-                        name="department"
-                        type="text"
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="부서 (선택)"
-                        value={formData.department}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">🏢</span>
-                      </div>
-                    </div>
+                    <input
+                      id="department"
+                      name="department"
+                      type="text"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="부서 (선택)"
+                      value={formData.department}
+                      onChange={handleChange}
+                    />
                   </div>
 
                   <div>
-                    <label htmlFor="position" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="position" className="block text-sm font-medium text-neutral-700 mb-2">
                       직책
                     </label>
-                    <div className="relative">
-                      <input
-                        id="position"
-                        name="position"
-                        type="text"
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="직책 (선택)"
-                        value={formData.position}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">💼</span>
-                      </div>
-                    </div>
+                    <input
+                      id="position"
+                      name="position"
+                      type="text"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="직책 (선택)"
+                      value={formData.position}
+                      onChange={handleChange}
+                    />
                   </div>
                 </div>
 
                 {/* 비밀번호 */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="password" className="block text-sm font-medium text-neutral-700 mb-2">
                       비밀번호 *
                     </label>
-                    <div className="relative">
-                      <input
-                        id="password"
-                        name="password"
-                        type="password"
-                        required
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="비밀번호"
-                        value={formData.password}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">🔒</span>
-                      </div>
-                    </div>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      required
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="비밀번호"
+                      value={formData.password}
+                      onChange={handleChange}
+                    />
                   </div>
 
                   <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-neutral-700 mb-2">
                       비밀번호 확인 *
                     </label>
-                    <div className="relative">
-                      <input
-                        id="confirmPassword"
-                        name="confirmPassword"
-                        type="password"
-                        required
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        placeholder="비밀번호 확인"
-                        value={formData.confirmPassword}
-                        onChange={handleChange}
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                        <span className="text-gray-400">🔑</span>
-                      </div>
-                    </div>
+                    <input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      required
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      placeholder="비밀번호 확인"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                    />
                   </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-gradient-to-r from-green-500 to-blue-600 text-white py-3 px-4 rounded-xl font-medium hover:from-green-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 shadow-lg"
+                  className="w-full bg-neutral-900 text-white py-3 px-4 rounded-xl font-medium hover:bg-neutral-800 focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center">
@@ -320,17 +320,14 @@ const RegisterPage = () => {
                       가입 중...
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center">
-                      <span className="mr-2">✨</span>
-                      회원가입
-                    </div>
+                    '회원가입'
                   )}
                 </button>
 
                 <div className="text-center pt-4">
                   <Link 
                     to="/login" 
-                    className="text-blue-600 hover:text-purple-600 font-medium transition-colors duration-200"
+                    className="text-neutral-600 hover:text-neutral-900 font-medium transition-colors duration-200"
                   >
                     이미 계정이 있으신가요? 로그인
                   </Link>
@@ -339,13 +336,15 @@ const RegisterPage = () => {
             </div>
 
             {/* 안내 메시지 */}
-            <div className="mt-6 bg-green-50/80 backdrop-blur-sm rounded-xl p-4 border border-green-200/50">
+            <div className="mt-6 bg-neutral-50 rounded-xl p-4 border border-neutral-200">
               <div className="flex items-start space-x-3">
-                <span className="text-green-500 text-lg">💡</span>
+                <div className="w-5 h-5 bg-neutral-300 rounded-full flex items-center justify-center mt-0.5">
+                  <span className="text-neutral-600 text-xs">i</span>
+                </div>
                 <div>
-                  <h3 className="font-medium text-green-900 mb-1">가입 안내</h3>
-                  <p className="text-sm text-green-700">
-                    * 표시는 필수 입력 항목입니다. 부서와 직책은 선택사항이며, 나중에 수정할 수 있습니다.
+                  <h3 className="font-medium text-neutral-900 mb-1">가입 안내</h3>
+                  <p className="text-sm text-neutral-600">
+                    * 표시는 필수 입력 항목입니다. 그룹은 필수 선택이며, 부서와 직책은 선택사항으로 나중에 수정할 수 있습니다.
                   </p>
                 </div>
               </div>
@@ -353,8 +352,15 @@ const RegisterPage = () => {
           </div>
         </div>
       </div>
+
+      {/* 그룹 선택 모달 */}
+      <GroupSelectionModal
+        isOpen={showGroupModal}
+        onClose={() => setShowGroupModal(false)}
+        onSelect={handleGroupSelect}
+      />
     </div>
   )
 }
 
-export default RegisterPage 
+export default RegisterPage

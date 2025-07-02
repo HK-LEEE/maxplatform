@@ -15,6 +15,7 @@ load_dotenv()
 
 # 라우터 import
 from app.routers import auth, workspace, jupyter, files, llm, service, admin
+# llmops는 chromadb 의존성으로 인해 임시 비활성화
 from app.database import get_db
 from app.models import User
 

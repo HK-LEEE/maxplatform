@@ -5,13 +5,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+##DB Config 수정점.
+
 class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", extra="allow")
     
     # 데이터베이스 타입 및 연결 설정
     database_type: str = os.getenv("DATABASE_TYPE", "postgresql")  # postgresql, mysql, mssql
-    database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:2300@localhost:5432/platform_integration")
-    
+    #database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:2300@localhost:5432/platform_integration")
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:2300@172.28.32.1:5432/platform_integration")
+
     # Legacy 호환성 - 기존 설정들은 유지
     mysql_database_url: str = os.getenv("MYSQL_DATABASE_URL", "mysql+pymysql://test:test@localhost:3306/jupyter_platform")
     mssql_database_url: str = os.getenv("MSSQL_DATABASE_URL", "mssql+pyodbc://sa:password@localhost:1433/jupyter_platform?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes")

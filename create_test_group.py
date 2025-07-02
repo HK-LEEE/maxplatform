@@ -5,6 +5,7 @@
 
 import sys
 import os
+import uuid
 sys.path.append('backend')
 
 from backend.app.database import engine, SessionLocal
@@ -33,6 +34,7 @@ def create_test_groups():
         
         # 1. 분석팀 그룹 생성
         analysis_group = Group(
+            id=str(uuid.uuid4()),
             name="분석팀",
             description="데이터 분석 및 AI 관련 업무를 담당하는 팀",
             created_by=admin_user.id
@@ -48,6 +50,7 @@ def create_test_groups():
         
         # 2. 관리팀 그룹 생성
         admin_group = Group(
+            id=str(uuid.uuid4()),
             name="관리팀",
             description="시스템 관리 및 운영을 담당하는 팀",
             created_by=admin_user.id
@@ -61,6 +64,7 @@ def create_test_groups():
         
         # 3. 일반사용자 그룹 생성
         user_group = Group(
+            id=str(uuid.uuid4()),
             name="일반사용자",
             description="기본 기능만 사용 가능한 일반 사용자 그룹",
             created_by=admin_user.id

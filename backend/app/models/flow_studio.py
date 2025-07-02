@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, Enum as SQLEnum
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 import uuid
 import enum
@@ -20,7 +21,7 @@ class Project(Base):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     user_id = Column(String(36), nullable=False, index=True)
-    group_id = Column(String(36), nullable=True, index=True)  # 그룹 소유 프로젝트용
+    group_id = Column(UUID(as_uuid=True), ForeignKey('groups.id'), nullable=True, index=True)  # 그룹 소유 프로젝트용
     owner_type = Column(String(20), nullable=False, default="user")  # "user" or "group"
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -41,7 +42,7 @@ class FlowStudioFlow(Base):
     
     # 권한 관련 필드
     user_id = Column(String(36), nullable=False, index=True)  # 플로우 생성자
-    group_id = Column(String(36), nullable=True, index=True)  # 그룹 소유 플로우용
+    group_id = Column(UUID(as_uuid=True), ForeignKey('groups.id'), nullable=True, index=True)  # 그룹 소유 플로우용
     owner_type = Column(String(20), nullable=False, default="user")  # "user" or "group"
     
     # Publish 상태 관리 (신규 추가)

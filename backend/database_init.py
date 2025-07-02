@@ -153,7 +153,10 @@ def insert_seed_data(engine):
         ]
         
         for group_data in groups_data:
-            group = Group(**group_data)
+            group = Group(
+                id=str(uuid.uuid4()),
+                **group_data
+            )
             db.add(group)
         
         db.commit()

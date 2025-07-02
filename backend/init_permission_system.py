@@ -6,6 +6,7 @@
 
 import os
 import sys
+import uuid
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -117,7 +118,10 @@ def init_basic_data():
             for group_data in basic_groups:
                 existing = db.query(Group).filter(Group.name == group_data["name"]).first()
                 if not existing:
-                    group = Group(**group_data)
+                    group = Group(
+                        id=str(uuid.uuid4()),
+                        **group_data
+                    )
                     db.add(group)
                     print(f"  ✅ 그룹 생성: {group_data['name']}")
         

@@ -134,7 +134,7 @@ class MAXLLM_Flow_Publish_Access(Base):
     id = Column(Integer, primary_key=True, index=True)
     flow_id = Column(String(36), nullable=False, index=True)  # FlowStudioFlow ID
     publish_scope = Column(SAEnum(PublishScope), nullable=False, index=True)
-    target_group_id = Column(Integer, nullable=True)  # GROUP 범위인 경우
+    target_group_id = Column(UUID(as_uuid=True), ForeignKey('groups.id'), nullable=True)  # GROUP 범위인 경우
     target_user_id = Column(UUID(as_uuid=True), nullable=True)  # USER 범위인 경우
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

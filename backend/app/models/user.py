@@ -36,7 +36,7 @@ class User(Base):
     
     # 역할 및 그룹 (직접 참조로 변경)
     role_id = Column(Integer, ForeignKey('roles.id'), nullable=True, comment="사용자 역할 ID")
-    group_id = Column(Integer, ForeignKey('groups.id'), nullable=True, comment="사용자 그룹 ID")
+    group_id = Column(UUID(as_uuid=True), ForeignKey('groups.id'), nullable=True, comment="사용자 그룹 ID")
     
     # 추가 정보
     department = Column(String(100), nullable=True, comment="부서")
@@ -68,7 +68,7 @@ class User(Base):
 class Group(Base):
     __tablename__ = "groups"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(100), unique=True, nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)

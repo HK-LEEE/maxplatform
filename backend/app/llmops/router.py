@@ -37,7 +37,7 @@ class CreateDataSourceRequest(BaseModel):
     name: str
     description: Optional[str] = None
     owner_type: OwnerType
-    group_id: Optional[int] = None  # GROUP 타입일 때 필요
+    group_id: Optional[str] = None  # GROUP 타입일 때 필요
     embedding_config: Optional[Dict[str, Any]] = None
 
 class QueryRequest(BaseModel):

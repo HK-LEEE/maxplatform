@@ -218,7 +218,10 @@ def insert_seed_data(engine):
         for group_data in groups_data:
             existing_group = db.query(Group).filter(Group.name == group_data["name"]).first()
             if not existing_group:
-                group = Group(**group_data)
+                group = Group(
+                    id=str(uuid.uuid4()),
+                    **group_data
+                )
                 db.add(group)
                 print(f"  ✅ {group_data['name']} 그룹 생성")
         

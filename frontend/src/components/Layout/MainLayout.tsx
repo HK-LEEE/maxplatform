@@ -8,23 +8,21 @@ import {
   Search,
   Sparkles
 } from 'lucide-react';
-
-interface UserInfo {
-  name: string;
-  email: string;
-  avatar?: string | null;
-}
+import { useAuth } from '../../contexts/AuthContext';
 
 const MainLayout: React.FC = () => {
-  const [user, setUser] = useState<UserInfo>({
-    name: 'Admin User',
-    email: 'admin@test.com',
-    avatar: null
-  });
+  const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 사용자가 로그인되지 않은 경우 로그인 페이지로 리다이렉트
+  useEffect(() => {
+    if (!user) {
+      navigate('/login');
+    }
+  }, [user, navigate]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -37,9 +35,15 @@ const MainLayout: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    navigate('/login');
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('로그아웃 실패:', error);
+      // 에러가 발생해도 로그인 페이지로 이동
+      navigate('/login');
+    }
   };
 
   // 현재 페이지 제목 가져오기
@@ -109,8 +113,12 @@ const MainLayout: React.FC = () => {
                     <User className="w-4 h-4 text-white" />
                   </div>
                   <div className="hidden md:block text-left">
-                    <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                    <div className="text-xs text-gray-500">{user.email}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {user?.display_name || user?.real_name || 'Unknown User'}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {user?.email || 'No email'}
+                    </div>
                   </div>
                 </button>
 

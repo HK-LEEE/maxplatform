@@ -180,6 +180,59 @@ def get_current_user(
     logger.info(f"Successfully authenticated user: {user.id}")
     return user
 
+def get_current_user_optional(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Access Token으로부터 현재 사용자 정보 조회 (선택적)
+    인증되지 않은 경우 None을 반환하고 예외를 발생시키지 않음
+    """
+    try:
+        # Request에서 토큰 추출
+        token = extract_token_from_request(request)
+        
+        if not token or token.strip() == "":
+            return None
+            
+        # Bearer 접두사 제거
+        if token.startswith("Bearer "):
+            token = token[7:]
+        elif token.startswith("bearer "):
+            token = token[7:]
+        
+        # 토큰 세그먼트 확인
+        token_parts = token.split('.')
+        if len(token_parts) != 3:
+            return None
+            
+        # JWT 디코딩 및 검증
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        
+        # 토큰 타입 확인
+        if payload.get("type") != "access":
+            return None
+            
+        # 사용자 ID 추출
+        user_id = payload.get("user_id") or payload.get("sub")
+        if not user_id:
+            return None
+            
+        # 데이터베이스에서 사용자 조회
+        user = get_user_by_id(db, user_id)
+        if not user:
+            return None
+            
+        # 사용자 활성 상태 확인
+        if not user.is_active:
+            return None
+            
+        return user
+        
+    except Exception as e:
+        logger.debug(f"Optional user authentication failed: {e}")
+        return None
+
 def get_current_user_with_groups(
     request: Request,
     token: Optional[str] = Depends(oauth2_scheme), 

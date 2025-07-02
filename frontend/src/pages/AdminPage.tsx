@@ -6,11 +6,15 @@ import {
   ChevronRight, AlertCircle, CheckCircle, XCircle, Clock,
   Eye, EyeOff, Key, Filter, Grid, List, MoreVertical,
   ArrowRight, ArrowLeft, User, Phone, Building, Briefcase,
-  Calendar, Activity, Mail, MapPin, Brain, Server
+  Calendar, Activity, Mail, MapPin, Brain, Server, Lock,
+  Globe, FileText, Zap
 } from 'lucide-react';
 import FeatureLogo from '../components/common/FeatureLogo';
 import { llmChatApi } from '../services/llmChatApi';
 import { LLMModelManagement, LLMModelCreate, ModelType, OwnerType } from '../types/llmChat';
+import OAuthClientManager from '../components/admin/OAuthClientManager';
+import OAuthSessionManager from '../components/admin/OAuthSessionManager';
+import OAuthAuditLogs from '../components/admin/OAuthAuditLogs';
 
 interface User {
   id: string;
@@ -32,7 +36,7 @@ interface User {
   login_count: number;
   role?: any;
   group?: {
-    id: number;
+    id: string;
     name: string;
     description?: string;
   };
@@ -59,7 +63,7 @@ interface GroupUser {
 }
 
 interface Group {
-  id: number;
+  id: string;
   name: string;
   description: string;
   users_count?: number;
@@ -100,7 +104,7 @@ interface FeatureCategory {
 
 const AdminPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'features' | 'groups' | 'models'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'features' | 'groups' | 'models' | 'oauth-clients' | 'oauth-sessions' | 'oauth-logs'>('dashboard');
   const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [features, setFeatures] = useState<Feature[]>([]);
@@ -124,7 +128,7 @@ const AdminPage: React.FC = () => {
     position: '',
     bio: ''
   });
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [showFeatureModal, setShowFeatureModal] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null);
   const [isEditingFeature, setIsEditingFeature] = useState(false);
@@ -166,7 +170,7 @@ const AdminPage: React.FC = () => {
     bio: '',
     password: '',
     is_admin: false,
-    group_id: null as number | null
+    group_id: null as string | null
   });
 
   // LLM 모델 관리를 위한 상태
@@ -701,7 +705,7 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  const deleteGroup = async (groupId: number) => {
+  const deleteGroup = async (groupId: string) => {
     if (!confirm('정말로 이 그룹을 삭제하시겠습니까?')) {
       return;
     }
@@ -1081,7 +1085,10 @@ const AdminPage: React.FC = () => {
               { key: 'users', label: '사용자 관리', icon: Users },
               { key: 'features', label: '기능 관리', icon: Settings },
               { key: 'groups', label: '그룹 관리', icon: Shield },
-              { key: 'models', label: 'LLM 모델', icon: Brain }
+              { key: 'models', label: 'LLM 모델', icon: Brain },
+              { key: 'oauth-clients', label: 'OAuth 클라이언트', icon: Lock },
+              { key: 'oauth-sessions', label: 'OAuth 세션', icon: Globe },
+              { key: 'oauth-logs', label: 'OAuth 로그', icon: FileText }
             ].map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -1516,7 +1523,7 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">그룹</label>
                         <select
                           value={selectedGroupId || ''}
-                          onChange={(e) => setSelectedGroupId(e.target.value ? parseInt(e.target.value) : null)}
+                          onChange={(e) => setSelectedGroupId(e.target.value || null)}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                         >
                           <option value="">그룹 선택</option>
@@ -1675,7 +1682,7 @@ const AdminPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">그룹</label>
                   <select
                     value={newUserInfo.group_id || ''}
-                    onChange={(e) => setNewUserInfo({...newUserInfo, group_id: e.target.value ? parseInt(e.target.value) : null})}
+                    onChange={(e) => setNewUserInfo({...newUserInfo, group_id: e.target.value || null})}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                   >
                     <option value="">그룹 선택</option>
@@ -2139,9 +2146,7 @@ const AdminPage: React.FC = () => {
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모델</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">타입</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모델 ID</th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">소유자</th>
+                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">타입/ID</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">상태</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">생성일</th>
                     <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">액션</th>
@@ -2162,21 +2167,11 @@ const AdminPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800">
-                          {model.model_type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {model.model_id}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
                         <div>
-                          <span className={`px-2 py-1 text-xs font-medium rounded ${
-                            model.owner_type === 'USER' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-                          }`}>
-                            {model.owner_type}
+                          <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800">
+                            {model.model_type}
                           </span>
-                          <div className="text-xs text-gray-500 mt-1">{model.owner_id}</div>
+                          <div className="text-sm text-gray-900 mt-1">{model.model_id}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -2595,6 +2590,21 @@ const AdminPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* OAuth Clients Tab */}
+      {activeTab === 'oauth-clients' && (
+        <OAuthClientManager />
+      )}
+
+      {/* OAuth Sessions Tab */}
+      {activeTab === 'oauth-sessions' && (
+        <OAuthSessionManager />
+      )}
+
+      {/* OAuth Logs Tab */}
+      {activeTab === 'oauth-logs' && (
+        <OAuthAuditLogs />
       )}
     </div>
   );

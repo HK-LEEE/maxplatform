@@ -27,6 +27,7 @@ import {
 import FeatureLogo from '../components/common/FeatureLogo';
 import MiniLLMChat from '../components/chat/MiniLLMChat';
 import { servicesApi } from '../services/api';
+import { initiateOAuthFlow, isOAuthSupportedPlatform } from '../utils/oauth';
 
 interface Feature {
   id: string;
@@ -198,7 +199,7 @@ const DashboardPage: React.FC = () => {
       )
     : [];
 
-  const handleFeatureClick = (feature: Feature) => {
+  const handleFeatureClick = async (feature: Feature) => {
     console.log('Feature clicked:', feature);
     console.log('Feature URL path:', feature.url_path);
     
@@ -211,10 +212,42 @@ const DashboardPage: React.FC = () => {
       }
       
       if (feature.is_external || feature.open_in_new_tab) {
-        window.open(feature.url_path, '_blank');
+        // 외부 플랫폼으로 이동 - OAuth 2.0 또는 기존 SSO 방식 사용
+        if (feature.url_path.includes('localhost') && isOAuthSupportedPlatform(feature.url_path)) {
+          // OAuth 2.0 지원 플랫폼인 경우 Authorization Code Flow 사용
+          console.log('Using OAuth 2.0 flow for:', feature.url_path);
+          await initiateOAuthFlow(feature.url_path);
+        } else {
+          // OAuth 미지원 플랫폼은 기존 SSO 토큰 방식 사용
+          let targetUrl = feature.url_path;
+          const token = localStorage.getItem('token');
+          
+          if (token && feature.url_path.includes('localhost')) {
+            const separator = feature.url_path.includes('?') ? '&' : '?';
+            targetUrl = `${feature.url_path}${separator}sso_token=${encodeURIComponent(token)}`;
+          }
+          
+          window.open(targetUrl, '_blank');
+        }
       } else {
         if (feature.url_path.startsWith('http')) {
-          window.location.href = feature.url_path;
+          // 외부 URL로 전체 페이지 이동 - OAuth 2.0 또는 기존 SSO 방식 사용
+          if (feature.url_path.includes('localhost') && isOAuthSupportedPlatform(feature.url_path)) {
+            // OAuth 2.0 지원 플랫폼인 경우 Authorization Code Flow 사용
+            console.log('Using OAuth 2.0 flow for:', feature.url_path);
+            await initiateOAuthFlow(feature.url_path);
+          } else {
+            // OAuth 미지원 플랫폼은 기존 SSO 토큰 방식 사용
+            let targetUrl = feature.url_path;
+            const token = localStorage.getItem('token');
+            
+            if (token && feature.url_path.includes('localhost')) {
+              const separator = feature.url_path.includes('?') ? '&' : '?';
+              targetUrl = `${feature.url_path}${separator}sso_token=${encodeURIComponent(token)}`;
+            }
+            
+            window.location.href = targetUrl;
+          }
         } else {
           console.log('Navigating to:', feature.url_path);
           navigate(feature.url_path);

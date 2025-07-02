@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
@@ -108,6 +109,7 @@ def init_database():
         default_group = db.query(Group).filter(Group.name == "Default Users").first()
         if not default_group:
             default_group = Group(
+                id=str(uuid.uuid4()),
                 name="Default Users",
                 description="모든 신규 사용자가 자동으로 가입되는 기본 그룹",
                 created_by=admin_user.id if admin_user else None
@@ -121,6 +123,7 @@ def init_database():
         dev_group = db.query(Group).filter(Group.name == "Developers").first()
         if not dev_group:
             dev_group = Group(
+                id=str(uuid.uuid4()),
                 name="Developers",
                 description="데이터 과학자 및 개발자 그룹",
                 created_by=admin_user.id if admin_user else None
