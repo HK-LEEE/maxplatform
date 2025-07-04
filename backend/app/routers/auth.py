@@ -220,12 +220,16 @@ def verify_refresh_token(db: Session, refresh_token: str) -> Optional[RefreshTok
 def get_user_by_email(db: Session, email: str):
     return db.query(User).filter(User.email == email).first()
 
-def get_user_by_id(db: Session, user_id: str):
+def get_user_by_id(db: Session, user_id):
     try:
-        # 문자열을 UUID 객체로 변환
-        uuid_obj = uuid_module.UUID(user_id)
+        # UUID 객체인지 확인하고 적절히 처리
+        if isinstance(user_id, uuid_module.UUID):
+            uuid_obj = user_id
+        else:
+            # 문자열을 UUID 객체로 변환
+            uuid_obj = uuid_module.UUID(user_id)
         return db.query(User).filter(User.id == uuid_obj).first()
-    except ValueError:
+    except (ValueError, TypeError):
         # 유효하지 않은 UUID 형식
         return None
 
