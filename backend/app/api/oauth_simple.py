@@ -53,6 +53,29 @@ def generate_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def cleanup_expired_tokens(db: Session) -> int:
+    """Clean up expired and revoked tokens"""
+    try:
+        result = db.execute(
+            text("""
+                DELETE FROM oauth_access_tokens 
+                WHERE expires_at < NOW() OR revoked_at IS NOT NULL
+            """)
+        )
+        deleted_count = result.rowcount
+        db.commit()
+        
+        if deleted_count > 0:
+            logger.info(f"Cleaned up {deleted_count} expired/revoked tokens")
+        
+        return deleted_count
+        
+    except Exception as e:
+        logger.error(f"Token cleanup error: {str(e)}")
+        db.rollback()
+        return 0
+
+
 def verify_code_challenge(code_verifier: str, code_challenge: str, method: str = "S256") -> bool:
     """Verify PKCE code challenge"""
     if method == "plain":
@@ -170,7 +193,7 @@ def log_oauth_action(
     request: Optional[Request] = None,
     db: Session = None
 ):
-    """Log OAuth actions for audit trail"""
+    """Log OAuth actions for audit trail with separate transaction"""
     if not db:
         return
     
@@ -181,6 +204,9 @@ def log_oauth_action(
         if request:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("User-Agent")
+        
+        # Use a separate transaction for audit logging
+        db.execute(text("BEGIN"))
         
         db.execute(
             text("""
@@ -201,10 +227,15 @@ def log_oauth_action(
                 "error_description": error_description
             }
         )
-        db.commit()
+        
+        db.execute(text("COMMIT"))
         
     except Exception as e:
         logger.error(f"Audit log error: {str(e)}")
+        try:
+            db.execute(text("ROLLBACK"))
+        except:
+            pass
         # Don't fail the main operation due to logging issues
 
 
@@ -615,6 +646,9 @@ def token(
     Exchanges authorization code for access token
     """
     try:
+        # Clean up expired tokens periodically
+        cleanup_expired_tokens(db)
+        
         if grant_type != "authorization_code":
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
         
@@ -707,26 +741,57 @@ def token(
             data={"sub": str(user.id), "email": user.email}
         )
         
-        # Store token hash for revocation
+        # Store token hash for revocation with conflict handling
         token_hash = generate_token_hash(access_token)
         expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
         
-        db.execute(
-            text("""
-                INSERT INTO oauth_access_tokens 
-                (token_hash, client_id, user_id, scope, expires_at)
-                VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
-            """),
-            {
-                "token_hash": token_hash,
-                "client_id": client_id,
-                "user_id": auth_code_dict['user_id'],
-                "scope": auth_code_dict['scope'],
-                "expires_at": expires_at
-            }
-        )
-        
-        db.commit()
+        try:
+            # Clean up expired tokens for this user/client first
+            db.execute(
+                text("""
+                    DELETE FROM oauth_access_tokens 
+                    WHERE user_id = :user_id AND client_id = :client_id 
+                    AND (expires_at < NOW() OR revoked_at IS NOT NULL)
+                """),
+                {
+                    "user_id": auth_code_dict['user_id'],
+                    "client_id": client_id
+                }
+            )
+            
+            # Insert new token with conflict handling
+            db.execute(
+                text("""
+                    INSERT INTO oauth_access_tokens 
+                    (token_hash, client_id, user_id, scope, expires_at)
+                    VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
+                    ON CONFLICT (token_hash) DO UPDATE SET
+                        expires_at = EXCLUDED.expires_at,
+                        revoked_at = NULL,
+                        created_at = NOW()
+                """),
+                {
+                    "token_hash": token_hash,
+                    "client_id": client_id,
+                    "user_id": auth_code_dict['user_id'],
+                    "scope": auth_code_dict['scope'],
+                    "expires_at": expires_at
+                }
+            )
+            
+            db.commit()
+            
+        except Exception as token_error:
+            logger.error(f"Token storage error: {str(token_error)}")
+            db.rollback()
+            
+            # Log the error in a separate transaction
+            log_oauth_action(
+                "token", client_id, auth_code_dict['user_id'], False,
+                "server_error", f"Token storage failed: {str(token_error)}",
+                request, db
+            )
+            raise HTTPException(status_code=500, detail="Token creation failed")
         
         log_oauth_action(
             "token", client_id, auth_code_dict['user_id'], True,

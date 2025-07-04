@@ -143,7 +143,7 @@ class MAXLLM_Model(Base):
     """LLM 모델 관리 테이블"""
     __tablename__ = 'maxllm_models'
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     model_name = Column(String(255), nullable=False, index=True)
     model_type = Column(SAEnum(ModelType), nullable=False, index=True)
     model_id = Column(String(255), nullable=False, index=True)  # 실제 모델 식별자
@@ -154,6 +154,24 @@ class MAXLLM_Model(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # 관계
+    permissions = relationship("MAXLLM_Model_Permission", back_populates="model", cascade="all, delete-orphan")
+
+class MAXLLM_Model_Permission(Base):
+    """LLM 모델 사용 권한 관리 테이블"""
+    __tablename__ = 'maxllm_model_permissions'
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
+    model_id = Column(String(36), ForeignKey('maxllm_models.id'), nullable=False, index=True)
+    grantee_type = Column(SAEnum(OwnerType), nullable=False, index=True)  # USER 또는 GROUP
+    grantee_id = Column(String(255), nullable=False, index=True)  # 사용자 ID 또는 그룹 ID
+    granted_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False, index=True)  # 권한 부여자
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # 관계
+    model = relationship("MAXLLM_Model", back_populates="permissions")
 
 # 백업 테이블들
 class MAXLLM_Chat_Backup(Base):

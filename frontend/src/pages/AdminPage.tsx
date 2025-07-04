@@ -158,6 +158,11 @@ const AdminPage: React.FC = () => {
   const [assignedFeatures, setAssignedFeatures] = useState<Feature[]>([]);
   const [groupUsers, setGroupUsers] = useState<GroupUser[]>([]);
   
+  // LLM 모델 할당을 위한 상태 추가
+  const [selectedGroupModels, setSelectedGroupModels] = useState<string[]>([]);
+  const [unassignedModels, setUnassignedModels] = useState<LLMModelManagement[]>([]);
+  const [assignedModels, setAssignedModels] = useState<LLMModelManagement[]>([]);
+  
   // 새로운 사용자 추가를 위한 상태
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserInfo, setNewUserInfo] = useState({
@@ -175,6 +180,8 @@ const AdminPage: React.FC = () => {
 
   // LLM 모델 관리를 위한 상태
   const [llmModels, setLlmModels] = useState<LLMModelManagement[]>([]);
+  const [llmModelsLoading, setLlmModelsLoading] = useState(false);
+  const [llmModelsError, setLlmModelsError] = useState<string | null>(null);
   const [showModelModal, setShowModelModal] = useState(false);
   const [selectedModel, setSelectedModel] = useState<LLMModelManagement | null>(null);
   const [isEditingModel, setIsEditingModel] = useState(false);
@@ -237,16 +244,97 @@ const AdminPage: React.FC = () => {
       }
 
       // LLM 모델 가져오기
-      try {
-        const modelsData = await llmChatApi.getLLMModels();
-        setLlmModels(modelsData);
-      } catch (error) {
-        console.error('LLM 모델 로드 실패:', error);
-      }
+      await loadLlmModels();
     } catch (error) {
       console.error('데이터 로드 실패:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // LLM 모델 로딩 함수
+  const loadLlmModels = async () => {
+    setLlmModelsLoading(true);
+    setLlmModelsError(null);
+    
+    try {
+      console.log('LLM 모델 로딩 시작...');
+      const modelsData = await llmChatApi.getLLMModels();
+      console.log('LLM 모델 로드 성공:', modelsData);
+      setLlmModels(modelsData);
+    } catch (error) {
+      console.error('LLM 모델 로드 실패:', error);
+      setLlmModelsError('LLM 모델을 불러오는데 실패했습니다.');
+    } finally {
+      setLlmModelsLoading(false);
+    }
+  };
+
+  // 그룹의 LLM 모델 권한 로딩 함수
+  const loadGroupModelPermissions = async (groupId: string) => {
+    try {
+      console.log('그룹 LLM 모델 권한 조회 시작:', groupId);
+      const assignedModelIds: string[] = [];
+      const assignedModelsList: LLMModelManagement[] = [];
+      
+      // 각 모델의 권한을 확인하여 그룹이 할당된 모델들을 찾음
+      for (const model of llmModels) {
+        try {
+          const permissions = await fetch(`/api/llm-models/${model.id}/permissions`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          });
+          
+          if (permissions.ok) {
+            const permissionsData = await permissions.json();
+            const hasGroupPermission = permissionsData.some((p: any) => 
+              p.grantee_type === 'GROUP' && p.grantee_id === groupId
+            );
+            
+            if (hasGroupPermission) {
+              assignedModelIds.push(model.id);
+              assignedModelsList.push(model);
+            }
+          }
+        } catch (error) {
+          console.error(`모델 ${model.id} 권한 조회 실패:`, error);
+        }
+      }
+      
+      console.log('할당된 모델:', assignedModelsList);
+      console.log('미할당 모델:', llmModels.filter(m => !assignedModelIds.includes(m.id)));
+      
+      setAssignedModels(assignedModelsList);
+      setUnassignedModels(llmModels.filter(m => !assignedModelIds.includes(m.id)));
+      setSelectedGroupModels(assignedModelIds);
+    } catch (error) {
+      console.error('그룹 LLM 모델 권한 조회 실패:', error);
+      setAssignedModels([]);
+      setUnassignedModels(llmModels);
+      setSelectedGroupModels([]);
+    }
+  };
+
+  // 그룹 상세 정보 로딩 함수
+  const loadGroupDetails = async (groupId: string) => {
+    try {
+      console.log('그룹 상세 정보 로딩 시작:', groupId);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/admin/groups/${groupId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const groupDetail = await response.json();
+        console.log('그룹 상세 정보 로드 성공:', groupDetail);
+        console.log('그룹 사용자 수:', groupDetail.users?.length || 0);
+        setGroupUsers(groupDetail.users || []);
+      } else {
+        console.error('그룹 상세 정보 로드 실패:', response.status);
+        setGroupUsers([]);
+      }
+    } catch (error) {
+      console.error('그룹 상세 정보 로드 중 오류:', error);
+      setGroupUsers([]);
     }
   };
 
@@ -623,6 +711,10 @@ const AdminPage: React.FC = () => {
   };
 
   const openGroupModal = async (group: Group | null = null) => {
+    // 그룹 모달을 열 때마다 최신 LLM 모델 목록을 가져옴
+    console.log('그룹 모달 열기: LLM 모델 새로고침 시작');
+    await loadLlmModels();
+    
     if (group) {
       setSelectedGroup(group);
       setEditedGroupInfo({
@@ -637,8 +729,11 @@ const AdminPage: React.FC = () => {
       setUnassignedFeatures(availableFeatures.filter(f => !groupFeatureIds.includes(f.id)));
       setSelectedGroupFeatures(groupFeatureIds);
       
-      // 그룹 사용자 정보 로드
-      setGroupUsers(group.users || []);
+      // 그룹 상세 정보 및 사용자 목록 로드
+      await loadGroupDetails(group.id);
+      
+      // 그룹의 LLM 모델 권한 조회
+      await loadGroupModelPermissions(group.id);
     } else {
       setSelectedGroup(null);
       setEditedGroupInfo({
@@ -650,6 +745,12 @@ const AdminPage: React.FC = () => {
       setUnassignedFeatures(availableFeatures);
       setSelectedGroupFeatures([]);
       setGroupUsers([]);
+      
+      // 새 그룹의 경우 모든 모델을 미할당으로 설정
+      console.log('새 그룹 생성: 사용 가능한 LLM 모델 수:', llmModels.length);
+      setAssignedModels([]);
+      setUnassignedModels(llmModels);
+      setSelectedGroupModels([]);
     }
     setShowGroupModal(true);
   };
@@ -690,6 +791,68 @@ const AdminPage: React.FC = () => {
               feature_ids: selectedGroupFeatures
             })
           });
+        }
+
+        // LLM 모델 권한 업데이트
+        if (selectedGroup) {
+          // 기존 그룹 편집시: 기존 권한 삭제 후 새로 추가
+          try {
+            // 기존 그룹 권한 조회 및 삭제
+            const existingPermissions = await fetch(`/api/llm-models?accessible_only=false`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            
+            if (existingPermissions.ok) {
+              const modelsData = await existingPermissions.json();
+              
+              // 각 모델의 그룹 권한 삭제
+              for (const model of modelsData) {
+                try {
+                  const permissionsRes = await fetch(`/api/llm-models/${model.id}/permissions`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
+                  
+                  if (permissionsRes.ok) {
+                    const permissions = await permissionsRes.json();
+                    const groupPermission = permissions.find((p: any) => 
+                      p.grantee_type === 'GROUP' && p.grantee_id === groupData.id
+                    );
+                    
+                    if (groupPermission) {
+                      await fetch(`/api/llm-models/${model.id}/permissions/${groupPermission.id}`, {
+                        method: 'DELETE',
+                        headers: { Authorization: `Bearer ${token}` }
+                      });
+                    }
+                  }
+                } catch (error) {
+                  console.error(`모델 ${model.id} 권한 삭제 실패:`, error);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('기존 모델 권한 삭제 실패:', error);
+          }
+        }
+
+        // 새로 선택된 모델들에 권한 부여
+        for (const modelId of selectedGroupModels) {
+          try {
+            await fetch(`/api/llm-models/${modelId}/permissions`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model_id: modelId,
+                grantee_type: 'GROUP',
+                grantee_id: groupData.id
+              })
+            });
+          } catch (error) {
+            console.error(`모델 ${modelId} 권한 부여 실패:`, error);
+          }
         }
 
         await fetchData();
@@ -750,6 +913,26 @@ const AdminPage: React.FC = () => {
       setAssignedFeatures(prev => prev.filter(f => f.id !== featureId));
       setUnassignedFeatures(prev => [...prev, feature]);
       setSelectedGroupFeatures(prev => prev.filter(id => id !== featureId));
+    }
+  };
+
+  // LLM 모델을 오른쪽(할당됨)으로 이동
+  const moveModelToAssigned = (modelId: string) => {
+    const model = unassignedModels.find(m => m.id === modelId);
+    if (model) {
+      setUnassignedModels(prev => prev.filter(m => m.id !== modelId));
+      setAssignedModels(prev => [...prev, model]);
+      setSelectedGroupModels(prev => [...prev, modelId]);
+    }
+  };
+
+  // LLM 모델을 왼쪽(할당안됨)으로 이동
+  const moveModelToUnassigned = (modelId: string) => {
+    const model = assignedModels.find(m => m.id === modelId);
+    if (model) {
+      setAssignedModels(prev => prev.filter(m => m.id !== modelId));
+      setUnassignedModels(prev => [...prev, model]);
+      setSelectedGroupModels(prev => prev.filter(id => id !== modelId));
     }
   };
 
@@ -2047,10 +2230,126 @@ const AdminPage: React.FC = () => {
                 </p>
               </div>
 
+
+              {/* LLM 모델 할당 관리 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center">
+                  <Brain className="w-4 h-4 mr-2" />
+                  LLM 모델 할당
+                  {llmModelsLoading && (
+                    <RefreshCw className="w-4 h-4 ml-2 animate-spin text-blue-600" />
+                  )}
+                </label>
+                
+                {llmModelsError && (
+                  <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                        <span className="text-sm text-red-700">{llmModelsError}</span>
+                      </div>
+                      <button
+                        onClick={loadLlmModels}
+                        className="text-sm text-red-600 hover:text-red-800 underline"
+                      >
+                        다시 시도
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* 미할당 모델 리스트 */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                      <ArrowLeft className="w-4 h-4 mr-1" />
+                      미할당 모델 ({unassignedModels.length}개)
+                    </h4>
+                    <div className="border border-gray-200 rounded-lg h-48 overflow-y-auto bg-gray-50">
+                      {llmModelsLoading ? (
+                        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                          <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                          모델 목록을 불러오는 중...
+                        </div>
+                      ) : unassignedModels.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                          모든 모델이 할당되었습니다
+                        </div>
+                      ) : (
+                        <div className="p-2 space-y-1">
+                          {unassignedModels.map((model) => (
+                            <div
+                              key={model.id}
+                              className="flex items-center justify-between p-2 bg-white rounded border border-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+                              onClick={() => moveModelToAssigned(model.id)}
+                            >
+                              <div className="flex items-center">
+                                <div className="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2">
+                                  <Brain className="w-3 h-3 text-blue-600" />
+                                </div>
+                                <div>
+                                  <span className="text-sm font-medium">{model.model_name}</span>
+                                  <div className="text-xs text-gray-500">{model.model_type}</div>
+                                </div>
+                              </div>
+                              <ArrowRight className="w-4 h-4 text-gray-400" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 할당된 모델 리스트 */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                      <ArrowRight className="w-4 h-4 mr-1" />
+                      할당된 모델 ({assignedModels.length}개)
+                    </h4>
+                    <div className="border border-gray-200 rounded-lg h-48 overflow-y-auto bg-blue-50">
+                      {llmModelsLoading ? (
+                        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                          <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                          모델 권한을 확인하는 중...
+                        </div>
+                      ) : assignedModels.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                          할당된 모델이 없습니다
+                        </div>
+                      ) : (
+                        <div className="p-2 space-y-1">
+                          {assignedModels.map((model) => (
+                            <div
+                              key={model.id}
+                              className="flex items-center justify-between p-2 bg-white rounded border border-blue-200 hover:border-blue-300 transition-colors cursor-pointer"
+                              onClick={() => moveModelToUnassigned(model.id)}
+                            >
+                              <div className="flex items-center">
+                                <ArrowLeft className="w-4 h-4 text-gray-400" />
+                                <div className="w-6 h-6 bg-blue-50 rounded flex items-center justify-center mr-2 ml-2">
+                                  <Brain className="w-3 h-3 text-blue-600" />
+                                </div>
+                                <div>
+                                  <span className="text-sm font-medium">{model.model_name}</span>
+                                  <div className="text-xs text-gray-500">{model.model_type}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  좌측 모델을 클릭하여 할당하거나, 우측 모델을 클릭하여 해제할 수 있습니다.
+                </p>
+              </div>
+
               {/* 그룹 사용자 목록 */}
               {selectedGroup && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center">
+                    <User className="w-4 h-4 mr-2" />
                     그룹 소속 사용자 ({groupUsers.length}명)
                   </label>
                   <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto">

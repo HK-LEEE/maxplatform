@@ -283,7 +283,7 @@ async def get_llm_models(
 
 @router.put("/admin/models/{model_id}", response_model=LLMModelResponse)
 async def update_llm_model(
-    model_id: int,
+    model_id: str,
     model_data: LLMModelUpdate,
     service: LLMChatService = Depends(get_llm_chat_service),
     user_info = Depends(get_current_user_with_groups)
@@ -297,7 +297,7 @@ async def update_llm_model(
 
 @router.delete("/admin/models/{model_id}")
 async def delete_llm_model(
-    model_id: int,
+    model_id: str,
     service: LLMChatService = Depends(get_llm_chat_service),
     user_info = Depends(get_current_user_with_groups)
 ):

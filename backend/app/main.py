@@ -18,7 +18,8 @@ from .models.flow_studio import (
 # LLM Chat 모델 추가
 from .models.llm_chat import (
     MAXLLM_Persona, MAXLLM_Prompt_Template, MAXLLM_Chat, MAXLLM_Message, 
-    MAXLLM_Message_Feedback, MAXLLM_Shared_Chat, MAXLLM_Flow_Publish_Access
+    MAXLLM_Message_Feedback, MAXLLM_Shared_Chat, MAXLLM_Flow_Publish_Access,
+    MAXLLM_Model, MAXLLM_Model_Permission
 )
 
 # 모델 import 후에 database 모듈 import
@@ -28,7 +29,7 @@ from .routers import auth, workspace, jupyter, files, llm, service, admin, chrom
 # Flow Studio 라우터 추가
 from .routers import flow_studio
 # OAuth 2.0 라우터 추가
-from .api import oauth_simple
+from .api import oauth_simple, llm_models
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -42,14 +43,32 @@ app = FastAPI(
 # CORS 미들웨어 추가
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", 
-    "http://localhost:3001", 
-    "http://127.0.0.1:3000", 
-    "http://127.0.0.1:3001", 
-    "http://localhost:3005", 
-    "http://127.0.0.1:3005",
-    "http://localhost:3006",
-    "http://127.0.0.1:3006"],
+    allow_origins=[
+        # 기본 프론트엔드
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://127.0.0.1:3000", 
+        "http://127.0.0.1:3001", 
+        "http://localhost:3005", 
+        "http://127.0.0.1:3005",
+        "http://localhost:3006",
+        "http://127.0.0.1:3006",
+        # OAuth 클라이언트 포트들
+        "http://localhost:3010",  # maxlab
+        "http://localhost:3015",  # maxteamsync
+        "http://localhost:3020",  # maxworkspace
+        "http://localhost:3025",  # maxqueryhub
+        "http://localhost:3030",  # maxllm
+        "http://localhost:3035",  # maxapa
+        "http://localhost:3040",  # maxmlops
+        "http://127.0.0.1:3010",  # maxlab
+        "http://127.0.0.1:3015",  # maxteamsync
+        "http://127.0.0.1:3020",  # maxworkspace
+        "http://127.0.0.1:3025",  # maxqueryhub
+        "http://127.0.0.1:3030",  # maxllm
+        "http://127.0.0.1:3035",  # maxapa
+        "http://127.0.0.1:3040",  # maxmlops
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -77,6 +96,8 @@ app.include_router(llm_chat.router, tags=["LLM Chat"])
 app.include_router(oauth_simple.router, tags=["OAuth 2.0"])
 # OAuth 2.0 관리 라우터 추가
 app.include_router(oauth_admin.router, tags=["OAuth Admin"])
+# LLM 모델 관리 라우터 추가
+app.include_router(llm_models.router, tags=["LLM Models"])
 
 # 정적 파일 서빙 (업로드된 파일용)
 if not os.path.exists("data"):

@@ -135,7 +135,7 @@ export interface RAGDataSource {
 // UI 상태 관련
 // LLM 모델 관리 관련
 export interface LLMModelManagement {
-  id: number;
+  id: string;
   model_name: string;
   model_type: ModelType;
   model_id: string;

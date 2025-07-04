@@ -344,18 +344,24 @@ class LLMService:
                     error_text = await response.text()
                     raise Exception(f"Ollama API 오류 ({response.status}): {error_text}")
     
-    async def get_available_models(self) -> Dict[str, List[str]]:
-        """사용 가능한 모델 목록 조회"""
+    async def get_available_models(self, user_id: str = None) -> Dict[str, List[str]]:
+        """사용 가능한 모델 목록 조회 (권한 기반)"""
+        from ..models.llm_chat import MAXLLM_Model, MAXLLM_Model_Permission, OwnerType
+        from ..models.user import User
+        from ..database import get_db
+        from sqlalchemy import and_, or_
+        
         models = {
             "azure": [],
-            "ollama": []
+            "ollama": [],
+            "flowstudio": [],
+            "database": []  # 데이터베이스에 등록된 모델들
         }
         
-        # Azure 모델 (설정에서 가져옴)
+        # 기본 Azure/Ollama 모델 (설정 기반)
         if self.azure_available:
             models["azure"].append(settings.azure_openai_deployment_name)
         
-        # Ollama 모델 목록 조회
         if self.ollama_available:
             try:
                 async with aiohttp.ClientSession() as session:
@@ -365,6 +371,89 @@ class LLMService:
                             models["ollama"] = [model["name"] for model in result.get("models", [])]
             except Exception as e:
                 logger.error(f"Ollama 모델 목록 조회 실패: {e}")
+        
+        # 데이터베이스 등록 모델 조회 (권한 기반)
+        if user_id:
+            try:
+                # 임시로 DB 세션 생성 (실제 구현에서는 dependency injection 고려)
+                from ..database import SessionLocal
+                db = SessionLocal()
+                
+                try:
+                    # 사용자 정보 조회
+                    user = db.query(User).filter(User.id == user_id).first()
+                    if user:
+                        # 접근 가능한 모델 조건들
+                        access_conditions = []
+                        
+                        # 1. 사용자 소유 모델
+                        access_conditions.append(
+                            and_(
+                                MAXLLM_Model.owner_type == OwnerType.USER,
+                                MAXLLM_Model.owner_id == user_id
+                            )
+                        )
+                        
+                        # 2. 사용자 그룹 소유 모델
+                        if user.group_id:
+                            access_conditions.append(
+                                and_(
+                                    MAXLLM_Model.owner_type == OwnerType.GROUP,
+                                    MAXLLM_Model.owner_id == str(user.group_id)
+                                )
+                            )
+                        
+                        # 3. 직접 권한이 부여된 모델
+                        user_permission_subquery = db.query(MAXLLM_Model_Permission.model_id).filter(
+                            and_(
+                                MAXLLM_Model_Permission.grantee_type == OwnerType.USER,
+                                MAXLLM_Model_Permission.grantee_id == user_id
+                            )
+                        ).subquery()
+                        
+                        access_conditions.append(MAXLLM_Model.id.in_(user_permission_subquery))
+                        
+                        # 4. 그룹 권한이 부여된 모델
+                        if user.group_id:
+                            group_permission_subquery = db.query(MAXLLM_Model_Permission.model_id).filter(
+                                and_(
+                                    MAXLLM_Model_Permission.grantee_type == OwnerType.GROUP,
+                                    MAXLLM_Model_Permission.grantee_id == str(user.group_id)
+                                )
+                            ).subquery()
+                            
+                            access_conditions.append(MAXLLM_Model.id.in_(group_permission_subquery))
+                        
+                        # 접근 가능한 모델 조회
+                        accessible_models = db.query(MAXLLM_Model).filter(
+                            and_(
+                                MAXLLM_Model.is_active == True,
+                                or_(*access_conditions)
+                            )
+                        ).all()
+                        
+                        # 모델 타입별로 분류
+                        for model in accessible_models:
+                            model_info = {
+                                "id": model.id,
+                                "name": model.model_name,
+                                "model_id": model.model_id,
+                                "description": model.description
+                            }
+                            
+                            if model.model_type.value.lower() == "azure_openai":
+                                models["azure"].append(model_info)
+                            elif model.model_type.value.lower() == "ollama":
+                                models["ollama"].append(model_info)
+                            elif model.model_type.value.lower() == "flowstudio":
+                                models["flowstudio"].append(model_info)
+                            else:
+                                models["database"].append(model_info)
+                
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"데이터베이스 모델 조회 실패: {e}")
         
         return models
 

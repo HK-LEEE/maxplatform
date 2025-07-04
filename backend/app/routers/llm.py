@@ -160,10 +160,12 @@ async def chat_with_notebook(
         )
 
 @router.get("/models")
-async def get_available_models():
-    """사용 가능한 모델 목록 조회"""
+async def get_available_models(
+    current_user = Depends(get_current_user)
+):
+    """사용 가능한 모델 목록 조회 (권한 기반)"""
     try:
-        models = await llm_service.get_available_models()
+        models = await llm_service.get_available_models(str(current_user.id))
         return {
             "status": "success",
             "models": models
@@ -172,7 +174,7 @@ async def get_available_models():
         return {
             "status": "error",
             "error": str(e),
-            "models": {"azure": [], "ollama": []}
+            "models": {"azure": [], "ollama": [], "flowstudio": [], "database": []}
         }
 
 @router.get("/workspace/{workspace_id}/notebooks")

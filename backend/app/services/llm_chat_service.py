@@ -1008,7 +1008,7 @@ class LLMChatService:
             logger.error(f"LLM 모델 목록 조회 실패: {e}")
             raise
     
-    async def update_llm_model(self, user_info: Dict[str, Any], model_id: int, model_data: LLMModelUpdate) -> LLMModelResponse:
+    async def update_llm_model(self, user_info: Dict[str, Any], model_id: str, model_data: LLMModelUpdate) -> LLMModelResponse:
         """LLM 모델 수정"""
         try:
             model = self.db.query(MAXLLM_Model).filter(MAXLLM_Model.id == model_id).first()
@@ -1043,7 +1043,7 @@ class LLMChatService:
             logger.error(f"LLM 모델 수정 실패: {e}")
             raise
     
-    async def delete_llm_model(self, user_info: Dict[str, Any], model_id: int) -> bool:
+    async def delete_llm_model(self, user_info: Dict[str, Any], model_id: str) -> bool:
         """LLM 모델 삭제"""
         try:
             model = self.db.query(MAXLLM_Model).filter(MAXLLM_Model.id == model_id).first()

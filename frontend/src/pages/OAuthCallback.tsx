@@ -10,8 +10,18 @@ const OAuthCallback: React.FC = () => {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
+    // Prevent duplicate token requests
+    const processedKey = 'oauth_callback_processed';
+    if (sessionStorage.getItem(processedKey)) {
+      console.log('OAuth callback already processed, skipping...');
+      return;
+    }
+    
     const handleOAuthCallback = async () => {
       try {
+        // Mark as processing to prevent duplicates
+        sessionStorage.setItem(processedKey, 'true');
+        
         // Extract authorization code and state from URL
         const currentUrl = window.location.href;
         const authResult = extractAuthorizationCode(currentUrl);
@@ -41,12 +51,17 @@ const OAuthCallback: React.FC = () => {
           } else {
             navigate('/dashboard');
           }
+          // Clean up processed flag after successful redirect
+          sessionStorage.removeItem(processedKey);
         }, 2000);
         
       } catch (error) {
         console.error('OAuth callback error:', error);
         setError(error instanceof Error ? error.message : 'OAuth authentication failed');
         setStatus('error');
+        
+        // Clean up processed flag on error
+        sessionStorage.removeItem(processedKey);
         
         // Redirect to dashboard after error
         setTimeout(() => {
@@ -56,7 +71,7 @@ const OAuthCallback: React.FC = () => {
     };
     
     handleOAuthCallback();
-  }, [navigate]);
+  }, []); // Empty dependency array to run only once
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">

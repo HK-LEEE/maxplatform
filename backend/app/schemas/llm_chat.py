@@ -253,7 +253,7 @@ class LLMModelUpdate(BaseModel):
 class LLMModelResponse(LLMModelBase):
     model_config = ConfigDict(from_attributes=True)
     
-    id: int
+    id: str
     owner_type: OwnerType
     owner_id: str
     is_active: bool

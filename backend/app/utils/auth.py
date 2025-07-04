@@ -9,6 +9,8 @@ from ..config import settings
 from ..database import get_db
 from ..models.user import User
 import logging
+import secrets
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +29,26 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """JWT 액세스 토큰 생성"""
+    """JWT 액세스 토큰 생성 (고유성 보장)"""
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+    now = datetime.utcnow()
     
-    to_encode.update({"exp": expire, "type": "access", "iat": datetime.utcnow()})
+    if expires_delta:
+        expire = now + expires_delta
+    else:
+        expire = now + timedelta(minutes=settings.access_token_expire_minutes)
+    
+    # 고유성 보장을 위한 추가 필드
+    to_encode.update({
+        "exp": expire,
+        "type": "access", 
+        "iat": now,
+        "jti": str(uuid.uuid4()),  # JWT ID for uniqueness
+        "nbf": now,  # Not before
+        "iss": "maxplatform",  # Issuer
+        "nonce": secrets.token_hex(8)  # Additional randomness
+    })
+    
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
