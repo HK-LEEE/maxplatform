@@ -40,6 +40,11 @@ class UserInfoResponse(BaseModel):
     email: str
     name: str
     groups: List[str]
+    is_admin: bool = False
+    group_id: Optional[str] = None
+    group_name: Optional[str] = None
+    role_id: Optional[str] = None
+    role_name: Optional[str] = None
 
 
 # Helper functions
@@ -731,15 +736,39 @@ def token(
             {"code": code}
         )
         
-        # Get user
-        user = db.query(User).filter(User.id == auth_code_dict['user_id']).first()
+        # Get user with group and role information (eager loading)
+        from sqlalchemy.orm import joinedload
+        user = db.query(User).options(
+            joinedload(User.group),
+            joinedload(User.role)
+        ).filter(User.id == auth_code_dict['user_id']).first()
         if not user:
             raise HTTPException(status_code=400, detail="User not found")
         
-        # Create access token (reuse existing JWT token creation)
-        access_token = create_access_token(
-            data={"sub": str(user.id), "email": user.email}
-        )
+        # Prepare complete user data for JWT token
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "is_admin": user.is_admin,
+            "user_id": str(user.id)
+        }
+        
+        # Add group information if available
+        if user.group_id and user.group:
+            token_data.update({
+                "group_id": str(user.group_id),
+                "group_name": user.group.name
+            })
+        
+        # Add role information if available
+        if user.role_id and user.role:
+            token_data.update({
+                "role_id": str(user.role_id),
+                "role_name": user.role.name
+            })
+        
+        # Create access token with complete user information
+        access_token = create_access_token(data=token_data)
         
         # Store token hash for revocation with conflict handling
         token_hash = generate_token_hash(access_token)
@@ -828,19 +857,44 @@ def userinfo(
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
-    # Get user's groups
-    groups = []
+    # Get user's groups with eager loading for better performance
+    from sqlalchemy.orm import joinedload
+    user_with_relations = db.query(User).options(
+        joinedload(User.group),
+        joinedload(User.role)
+    ).filter(User.id == current_user.id).first()
     
-    if current_user.group_id:
-        group = db.query(Group).filter(Group.id == current_user.group_id).first()
-        if group:
-            groups.append(group.name)
+    if not user_with_relations:
+        user_with_relations = current_user
+    
+    # Prepare group information
+    groups = []
+    group_id = None
+    group_name = None
+    
+    if user_with_relations.group:
+        groups.append(user_with_relations.group.name)
+        group_id = str(user_with_relations.group.id)
+        group_name = user_with_relations.group.name
+    
+    # Prepare role information
+    role_id = None
+    role_name = None
+    
+    if user_with_relations.role:
+        role_id = str(user_with_relations.role.id)
+        role_name = user_with_relations.role.name
     
     return UserInfoResponse(
-        sub=str(current_user.id),
-        email=current_user.email,
-        name=current_user.display_name or current_user.real_name or current_user.email,
-        groups=groups
+        sub=str(user_with_relations.id),
+        email=user_with_relations.email,
+        name=user_with_relations.display_name or user_with_relations.real_name or user_with_relations.email,
+        groups=groups,
+        is_admin=user_with_relations.is_admin,
+        group_id=group_id,
+        group_name=group_name,
+        role_id=role_id,
+        role_name=role_name
     )
 
 
