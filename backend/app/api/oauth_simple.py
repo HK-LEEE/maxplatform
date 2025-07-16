@@ -19,10 +19,10 @@ from pydantic import BaseModel, Field, HttpUrl
 from ..database import get_db
 from ..models import User, Group
 from ..config import settings
-from ..utils.auth import get_current_user_optional, verify_password, create_access_token
-import logging
+from ..utils.auth import get_current_user_optional, get_current_user_silent, verify_password, create_access_token
+from ..utils.logging_config import get_oauth_logger, log_oauth_event, SecurityDataFilter
 
-logger = logging.getLogger(__name__)
+logger = get_oauth_logger()
 
 router = APIRouter(prefix="/api/oauth", tags=["OAuth 2.0"])
 
@@ -33,6 +33,8 @@ class TokenResponse(BaseModel):
     token_type: str = "Bearer"
     expires_in: int
     scope: str
+    refresh_token: Optional[str] = None
+    refresh_expires_in: Optional[int] = None
 
 
 class UserInfoResponse(BaseModel):
@@ -58,22 +60,43 @@ def generate_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def generate_refresh_token() -> str:
+    """Generate a secure random refresh token (RFC 6749 compliant)"""
+    return secrets.token_urlsafe(48)  # 48 bytes = 384 bits for extra security
+
+
+def calculate_refresh_token_expiry() -> datetime:
+    """Calculate refresh token expiration time"""
+    # Default to 30 days for refresh tokens
+    return datetime.utcnow() + timedelta(days=30)
+
+
 def cleanup_expired_tokens(db: Session) -> int:
     """Clean up expired and revoked tokens"""
     try:
-        result = db.execute(
+        # Clean up access tokens
+        access_result = db.execute(
             text("""
                 DELETE FROM oauth_access_tokens 
                 WHERE expires_at < NOW() OR revoked_at IS NOT NULL
             """)
         )
-        deleted_count = result.rowcount
+        
+        # Clean up refresh tokens
+        refresh_result = db.execute(
+            text("""
+                DELETE FROM oauth_refresh_tokens 
+                WHERE expires_at < NOW() OR revoked_at IS NOT NULL
+            """)
+        )
+        
+        total_deleted = access_result.rowcount + refresh_result.rowcount
         db.commit()
         
-        if deleted_count > 0:
-            logger.info(f"Cleaned up {deleted_count} expired/revoked tokens")
+        if total_deleted > 0:
+            logger.info(f"Cleaned up {total_deleted} expired/revoked tokens")
         
-        return deleted_count
+        return total_deleted
         
     except Exception as e:
         logger.error(f"Token cleanup error: {str(e)}")
@@ -91,6 +114,392 @@ def verify_code_challenge(code_verifier: str, code_challenge: str, method: str =
         generated_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('ascii').rstrip('=')
         return generated_challenge == code_challenge
     return False
+
+
+def create_refresh_token_record(
+    user_id: str,
+    client_id: str,
+    scope: str,
+    access_token_hash: str,
+    request: Request,
+    db: Session
+) -> str:
+    """Create and store a new refresh token"""
+    refresh_token = generate_refresh_token()
+    refresh_token_hash = generate_token_hash(refresh_token)
+    expires_at = calculate_refresh_token_expiry()
+    
+    # Get client IP and user agent for security tracking
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent", "")
+    
+    try:
+        db.execute(
+            text("""
+                INSERT INTO oauth_refresh_tokens 
+                (token_hash, client_id, user_id, scope, access_token_hash, 
+                 expires_at, client_ip, user_agent, rotation_count)
+                VALUES (:token_hash, :client_id, :user_id, :scope, :access_token_hash,
+                        :expires_at, :client_ip, :user_agent, 0)
+            """),
+            {
+                "token_hash": refresh_token_hash,
+                "client_id": client_id,
+                "user_id": user_id,
+                "scope": scope,
+                "access_token_hash": access_token_hash,
+                "expires_at": expires_at,
+                "client_ip": client_ip,
+                "user_agent": user_agent
+            }
+        )
+        db.commit()
+        
+        # Log OAuth event with security filtering
+        log_oauth_event(
+            event_type="refresh_token_created",
+            client_id=client_id,
+            user_id=user_id,
+            scope=scope,
+            success=True,
+            ip_address=client_ip,
+            user_agent=user_agent
+        )
+        
+        return refresh_token
+        
+    except Exception as e:
+        error_msg = f"Failed to create refresh token: {str(e)}"
+        
+        # Log OAuth event failure
+        log_oauth_event(
+            event_type="refresh_token_created",
+            client_id=client_id,
+            user_id=user_id,
+            scope=scope,
+            success=False,
+            error=error_msg,
+            ip_address=client_ip,
+            user_agent=user_agent
+        )
+        
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create refresh token")
+
+
+def validate_refresh_token(
+    refresh_token: str,
+    client_id: str,
+    db: Session
+) -> dict:
+    """Validate refresh token and return token info (supports graceful rotation)"""
+    refresh_token_hash = generate_token_hash(refresh_token)
+    
+    # Log validation attempt with security filtering
+    log_oauth_event(
+        event_type="refresh_token_validation",
+        client_id=client_id,
+        success=True  # Will be updated based on result
+    )
+    
+    try:
+        # First, clean up expired grace period tokens
+        cleanup_count = db.execute(
+            text("""
+                UPDATE oauth_refresh_tokens 
+                SET token_status = 'revoked', revoked_at = NOW()
+                WHERE token_status = 'rotating' 
+                AND rotation_grace_expires_at < NOW()
+            """)
+        ).rowcount
+        
+        if cleanup_count > 0:
+            logger.info(f"Cleaned up {cleanup_count} expired grace period tokens")
+        
+        # Validate token (including 'rotating' tokens within grace period)
+        result = db.execute(
+            text("""
+                SELECT * FROM oauth_refresh_tokens 
+                WHERE token_hash = :token_hash 
+                AND client_id = :client_id 
+                AND revoked_at IS NULL 
+                AND expires_at > NOW()
+                AND (
+                    token_status = 'active' 
+                    OR (token_status = 'rotating' AND rotation_grace_expires_at > NOW())
+                )
+            """),
+            {
+                "token_hash": refresh_token_hash,
+                "client_id": client_id
+            }
+        )
+        token_record = result.first()
+        
+        if not token_record:
+            error_msg = f"Refresh token not found or invalid for client_id: {client_id}"
+            
+            # Enhanced debugging for graceful rotation
+            check_result = db.execute(
+                text("""
+                    SELECT token_status, revoked_at, expires_at, rotation_grace_expires_at, client_id 
+                    FROM oauth_refresh_tokens 
+                    WHERE token_hash = :token_hash
+                """),
+                {"token_hash": refresh_token_hash}
+            )
+            check_record = check_result.first()
+            
+            debug_info = {}
+            if check_record:
+                status, revoked_at, expires_at, grace_expires_at, found_client_id = check_record
+                debug_info = {
+                    "found_status": status,
+                    "revoked_at": str(revoked_at) if revoked_at else None,
+                    "expires_at": str(expires_at) if expires_at else None,
+                    "grace_expires_at": str(grace_expires_at) if grace_expires_at else None,
+                    "found_client_id": found_client_id,
+                    "expected_client_id": client_id
+                }
+                
+                if status == 'rotating' and grace_expires_at and grace_expires_at < datetime.utcnow():
+                    error_msg += " - Token was in rotating status but grace period expired"
+                elif status == 'revoked':
+                    error_msg += " - Token has been revoked"
+                elif found_client_id != client_id:
+                    error_msg += f" - Client ID mismatch"
+            else:
+                error_msg += " - Token hash not found in database"
+            
+            # Log validation failure
+            log_oauth_event(
+                event_type="refresh_token_validation",
+                client_id=client_id,
+                success=False,
+                error=error_msg
+            )
+            
+            return None
+            
+        # Get the current column count to handle the new fields
+        status = token_record[13] if len(token_record) > 13 else 'active'  # token_status
+        parent_hash = token_record[14] if len(token_record) > 14 else None  # parent_token_hash
+        grace_expires = token_record[15] if len(token_record) > 15 else None  # rotation_grace_expires_at
+        
+        # Log successful validation
+        log_oauth_event(
+            event_type="refresh_token_validation",
+            client_id=client_id,
+            user_id=str(token_record[3]),
+            success=True
+        )
+        
+        return {
+            'id': token_record[0],
+            'token_hash': token_record[1],
+            'client_id': token_record[2],
+            'user_id': token_record[3],
+            'scope': token_record[4],
+            'access_token_hash': token_record[5],
+            'expires_at': token_record[6],
+            'created_at': token_record[7],
+            'revoked_at': token_record[8],
+            'last_used_at': token_record[9],
+            'client_ip': token_record[10],
+            'user_agent': token_record[11],
+            'rotation_count': token_record[12],
+            'token_status': status,
+            'parent_token_hash': parent_hash,
+            'rotation_grace_expires_at': grace_expires
+        }
+        
+    except Exception as e:
+        logger.error(f"Refresh token validation error: {str(e)}")
+        return None
+
+
+def revoke_refresh_token(refresh_token_hash: str, db: Session) -> bool:
+    """Revoke a refresh token"""
+    try:
+        result = db.execute(
+            text("""
+                UPDATE oauth_refresh_tokens 
+                SET revoked_at = NOW() 
+                WHERE token_hash = :token_hash
+            """),
+            {"token_hash": refresh_token_hash}
+        )
+        db.commit()
+        return result.rowcount > 0
+        
+    except Exception as e:
+        logger.error(f"Failed to revoke refresh token: {str(e)}")
+        db.rollback()
+        return False
+
+
+def rotate_refresh_token(
+    old_refresh_token_hash: str,
+    user_id: str,
+    client_id: str, 
+    scope: str,
+    request: Request,
+    db: Session
+) -> tuple[str, str]:
+    """Rotate refresh token with graceful rotation (security best practice + reliability)"""
+    try:
+        logger.info(f"Starting graceful token rotation - old_hash: {old_refresh_token_hash[:10]}..., user_id: {user_id}, client_id: {client_id}")
+        
+        # Create new tokens
+        new_refresh_token = generate_refresh_token()
+        new_refresh_token_hash = generate_token_hash(new_refresh_token)
+        
+        logger.info(f"Generated new refresh token - new_hash: {new_refresh_token_hash[:10]}...")
+        
+        # Create new access token
+        token_data = {"sub": str(user_id), "client_id": client_id, "scope": scope}
+        new_access_token = create_access_token(data=token_data)
+        new_access_token_hash = generate_token_hash(new_access_token)
+        
+        logger.info(f"Generated new access token for user_id: {user_id}")
+        
+        # Calculate expiry times
+        expires_at = calculate_refresh_token_expiry()
+        grace_expires_at = datetime.utcnow() + timedelta(seconds=10)  # 10-second grace period
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", "")
+        
+        # Step 1: Mark old token as 'rotating' with grace period (not immediately revoked)
+        logger.info(f"Setting old token to 'rotating' status with grace period until {grace_expires_at}")
+        db.execute(
+            text("""
+                UPDATE oauth_refresh_tokens 
+                SET token_status = 'rotating',
+                    rotation_grace_expires_at = :grace_expires_at,
+                    last_used_at = NOW()
+                WHERE token_hash = :old_token_hash
+            """),
+            {
+                "grace_expires_at": grace_expires_at,
+                "old_token_hash": old_refresh_token_hash
+            }
+        )
+        
+        # Step 2: Create new refresh token record (token family)
+        logger.info(f"Creating new refresh token with parent relationship")
+        db.execute(
+            text("""
+                INSERT INTO oauth_refresh_tokens 
+                (token_hash, client_id, user_id, scope, access_token_hash, expires_at, 
+                 client_ip, user_agent, rotation_count, parent_token_hash, token_status)
+                SELECT :new_token_hash, client_id, user_id, scope, :new_access_token_hash, :expires_at,
+                       :client_ip, :user_agent, rotation_count + 1, :old_token_hash, 'active'
+                FROM oauth_refresh_tokens 
+                WHERE token_hash = :old_token_hash
+            """),
+            {
+                "new_token_hash": new_refresh_token_hash,
+                "new_access_token_hash": new_access_token_hash,
+                "expires_at": expires_at,
+                "client_ip": client_ip,
+                "user_agent": user_agent,
+                "old_token_hash": old_refresh_token_hash
+            }
+        )
+        
+        # Step 3: Store new access token
+        access_token_expires = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+        db.execute(
+            text("""
+                INSERT INTO oauth_access_tokens 
+                (token_hash, client_id, user_id, scope, expires_at, refresh_token_hash)
+                VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at, :refresh_token_hash)
+            """),
+            {
+                "token_hash": new_access_token_hash,
+                "client_id": client_id,
+                "user_id": user_id,
+                "scope": scope,
+                "expires_at": access_token_expires,
+                "refresh_token_hash": new_refresh_token_hash
+            }
+        )
+        
+        # Step 4: Revoke old access token if exists
+        db.execute(
+            text("""
+                UPDATE oauth_access_tokens 
+                SET revoked_at = NOW() 
+                WHERE refresh_token_hash = :old_token_hash
+            """),
+            {"old_token_hash": old_refresh_token_hash}
+        )
+        
+        db.commit()
+        logger.info(f"Graceful rotation completed - old token has {grace_expires_at} grace period")
+        logger.info(f"Token family: {old_refresh_token_hash[:10]}... → {new_refresh_token_hash[:10]}...")
+        
+        return new_access_token, new_refresh_token
+        
+    except Exception as e:
+        logger.error(f"Failed to rotate refresh token: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to rotate tokens")
+
+
+def validate_client_for_refresh_token(
+    client_id: str,
+    client_secret: Optional[str],
+    db: Session
+) -> dict:
+    """Validate OAuth client for refresh token grant (no redirect_uri needed)"""
+    try:
+        logger.info(f"Looking up client in database: {client_id}")
+        # Get client from database
+        result = db.execute(
+            text("SELECT * FROM oauth_clients WHERE client_id = :client_id AND is_active = true"),
+            {"client_id": client_id}
+        )
+        client = result.first()
+        
+        if not client:
+            logger.error(f"Client not found in database: {client_id}")
+            raise HTTPException(status_code=401, detail="Invalid client_id")
+        
+        logger.info(f"Client found in database: {client_id}")
+        
+        # Convert to dict for easier access
+        client_dict = {
+            'id': client[0],
+            'client_id': client[1], 
+            'client_secret': client[2],
+            'client_name': client[3],
+            'description': client[4],
+            'redirect_uris': client[5],
+            'allowed_scopes': client[6],
+            'is_confidential': client[7],
+            'is_active': client[8],
+            'logo_url': client[9],
+            'homepage_url': client[10],
+            'created_at': client[11],
+            'updated_at': client[12]
+        }
+        
+        logger.info(f"Client is_confidential: {client_dict['is_confidential']}, has_client_secret: {client_secret is not None}")
+        
+        # For confidential clients, validate client secret
+        if client_dict['is_confidential'] and client_secret != client_dict['client_secret']:
+            logger.error(f"Client secret mismatch for confidential client: {client_id}")
+            raise HTTPException(status_code=401, detail="Invalid client_secret")
+        
+        logger.info(f"Client validation completed successfully: {client_id}")
+        return client_dict
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Client validation error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Client validation failed")
 
 
 def validate_client(
@@ -257,7 +666,7 @@ def authorize(
     display: Optional[str] = Query(None),  # popup 모드 감지용
     prompt: Optional[str] = Query(None),   # OpenID Connect prompt 파라미터
     request: Request = None,
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: Optional[User] = Depends(get_current_user_silent),
     db: Session = Depends(get_db)
 ):
     """
@@ -635,214 +1044,342 @@ def authorize(
         return RedirectResponse(url=error_uri)
 
 
+@router.options("/token")
+def token_options():
+    """Handle CORS preflight requests for token endpoint"""
+    return {}
+
 @router.post("/token", response_model=TokenResponse)
 def token(
     grant_type: str = Form(...),
-    code: str = Form(...),
-    redirect_uri: str = Form(...),
+    code: Optional[str] = Form(None),
+    redirect_uri: Optional[str] = Form(None),
     client_id: str = Form(...),
     client_secret: Optional[str] = Form(None),
     code_verifier: Optional[str] = Form(None),
+    refresh_token: Optional[str] = Form(None),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
-    OAuth 2.0 Token Endpoint
-    Exchanges authorization code for access token
+    OAuth 2.0 Token Endpoint (RFC 6749 Compliant)
+    Supports:
+    - authorization_code grant type: Exchanges authorization code for access token
+    - refresh_token grant type: Refreshes access token using refresh token
     """
     try:
         # Clean up expired tokens periodically
         cleanup_expired_tokens(db)
         
-        if grant_type != "authorization_code":
+        if grant_type == "authorization_code":
+            return handle_authorization_code_grant(
+                code, redirect_uri, client_id, client_secret, 
+                code_verifier, request, db
+            )
+        elif grant_type == "refresh_token":
+            return handle_refresh_token_grant(
+                refresh_token, client_id, client_secret, request, db
+            )
+        else:
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
-        
-        # Get authorization code record
-        code_result = db.execute(
-            text("SELECT * FROM authorization_codes WHERE code = :code AND used_at IS NULL"),
-            {"code": code}
-        )
-        auth_code = code_result.first()
-        
-        if not auth_code:
-            log_oauth_action(
-                "token", client_id, None, False,
-                "invalid_grant", "Invalid or expired authorization code",
-                request, db
-            )
-            raise HTTPException(status_code=400, detail="Invalid authorization code")
-        
-        # Convert to dict for easier access 
-        auth_code_dict = {
-            'id': auth_code[0],
-            'code': auth_code[1],
-            'client_id': auth_code[2],
-            'user_id': auth_code[3],
-            'redirect_uri': auth_code[4],
-            'scope': auth_code[5],
-            'code_challenge': auth_code[6],
-            'code_challenge_method': auth_code[7],
-            'expires_at': auth_code[8],
-            'used_at': auth_code[9],
-            'created_at': auth_code[10]
-        }
-        
-        # Check if code is expired
-        if auth_code_dict['expires_at'] < datetime.utcnow():
-            log_oauth_action(
-                "token", client_id, auth_code_dict['user_id'], False,
-                "invalid_grant", "Authorization code expired",
-                request, db
-            )
-            raise HTTPException(status_code=400, detail="Authorization code expired")
-        
-        # Validate client
-        client = validate_client(client_id, client_secret, redirect_uri, db)
-        
-        # Validate redirect URI matches
-        if redirect_uri != auth_code_dict['redirect_uri']:
-            log_oauth_action(
-                "token", client_id, auth_code_dict['user_id'], False,
-                "invalid_grant", "Redirect URI mismatch",
-                request, db
-            )
-            raise HTTPException(status_code=400, detail="Redirect URI mismatch")
-        
-        # Validate PKCE if used
-        if auth_code_dict['code_challenge']:
-            if not code_verifier:
-                log_oauth_action(
-                    "token", client_id, auth_code_dict['user_id'], False,
-                    "invalid_grant", "Missing code_verifier",
-                    request, db
-                )
-                raise HTTPException(status_code=400, detail="Missing code_verifier")
-            
-            if not verify_code_challenge(
-                code_verifier, 
-                auth_code_dict['code_challenge'], 
-                auth_code_dict['code_challenge_method'] or "S256"
-            ):
-                log_oauth_action(
-                    "token", client_id, auth_code_dict['user_id'], False,
-                    "invalid_grant", "Invalid code_verifier",
-                    request, db
-                )
-                raise HTTPException(status_code=400, detail="Invalid code_verifier")
-        
-        # Mark code as used
-        db.execute(
-            text("UPDATE authorization_codes SET used_at = NOW() WHERE code = :code"),
-            {"code": code}
-        )
-        
-        # Get user with group and role information (eager loading)
-        from sqlalchemy.orm import joinedload
-        user = db.query(User).options(
-            joinedload(User.group),
-            joinedload(User.role)
-        ).filter(User.id == auth_code_dict['user_id']).first()
-        if not user:
-            raise HTTPException(status_code=400, detail="User not found")
-        
-        # Prepare complete user data for JWT token
-        token_data = {
-            "sub": str(user.id),
-            "email": user.email,
-            "is_admin": user.is_admin,
-            "user_id": str(user.id)
-        }
-        
-        # Add group information if available
-        if user.group_id and user.group:
-            token_data.update({
-                "group_id": str(user.group_id),
-                "group_name": user.group.name
-            })
-        
-        # Add role information if available
-        if user.role_id and user.role:
-            token_data.update({
-                "role_id": str(user.role_id),
-                "role_name": user.role.name
-            })
-        
-        # Create access token with complete user information
-        access_token = create_access_token(data=token_data)
-        
-        # Store token hash for revocation with conflict handling
-        token_hash = generate_token_hash(access_token)
-        expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-        
-        try:
-            # Clean up expired tokens for this user/client first
-            db.execute(
-                text("""
-                    DELETE FROM oauth_access_tokens 
-                    WHERE user_id = :user_id AND client_id = :client_id 
-                    AND (expires_at < NOW() OR revoked_at IS NOT NULL)
-                """),
-                {
-                    "user_id": auth_code_dict['user_id'],
-                    "client_id": client_id
-                }
-            )
-            
-            # Insert new token with conflict handling
-            db.execute(
-                text("""
-                    INSERT INTO oauth_access_tokens 
-                    (token_hash, client_id, user_id, scope, expires_at)
-                    VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
-                    ON CONFLICT (token_hash) DO UPDATE SET
-                        expires_at = EXCLUDED.expires_at,
-                        revoked_at = NULL,
-                        created_at = NOW()
-                """),
-                {
-                    "token_hash": token_hash,
-                    "client_id": client_id,
-                    "user_id": auth_code_dict['user_id'],
-                    "scope": auth_code_dict['scope'],
-                    "expires_at": expires_at
-                }
-            )
-            
-            db.commit()
-            
-        except Exception as token_error:
-            logger.error(f"Token storage error: {str(token_error)}")
-            db.rollback()
-            
-            # Log the error in a separate transaction
-            log_oauth_action(
-                "token", client_id, auth_code_dict['user_id'], False,
-                "server_error", f"Token storage failed: {str(token_error)}",
-                request, db
-            )
-            raise HTTPException(status_code=500, detail="Token creation failed")
-        
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def handle_authorization_code_grant(
+    code: str,
+    redirect_uri: str, 
+    client_id: str,
+    client_secret: Optional[str],
+    code_verifier: Optional[str],
+    request: Request,
+    db: Session
+) -> TokenResponse:
+    """Handle authorization_code grant type"""
+    if not code or not redirect_uri:
+        raise HTTPException(status_code=400, detail="Missing required parameters")
+    
+    # Get authorization code record
+    code_result = db.execute(
+        text("SELECT * FROM authorization_codes WHERE code = :code AND used_at IS NULL"),
+        {"code": code}
+    )
+    auth_code = code_result.first()
+    
+    if not auth_code:
         log_oauth_action(
-            "token", client_id, auth_code_dict['user_id'], True,
+            "token", client_id, None, False,
+            "invalid_grant", "Invalid or expired authorization code",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="Invalid authorization code")
+    
+    # Convert to dict for easier access 
+    auth_code_dict = {
+        'id': auth_code[0],
+        'code': auth_code[1],
+        'client_id': auth_code[2],
+        'user_id': auth_code[3],
+        'redirect_uri': auth_code[4],
+        'scope': auth_code[5],
+        'code_challenge': auth_code[6],
+        'code_challenge_method': auth_code[7],
+        'expires_at': auth_code[8],
+        'used_at': auth_code[9],
+        'created_at': auth_code[10]
+    }
+    
+    # Check if code is expired
+    if auth_code_dict['expires_at'] < datetime.utcnow():
+        log_oauth_action(
+            "token", client_id, auth_code_dict['user_id'], False,
+            "invalid_grant", "Authorization code expired",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="Authorization code expired")
+    
+    # Validate client
+    client = validate_client(client_id, client_secret, redirect_uri, db)
+    
+    # Validate redirect URI matches
+    if redirect_uri != auth_code_dict['redirect_uri']:
+        log_oauth_action(
+            "token", client_id, auth_code_dict['user_id'], False,
+            "invalid_grant", "Redirect URI mismatch",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="Redirect URI mismatch")
+    
+    # Validate PKCE if used
+    if auth_code_dict['code_challenge']:
+        if not code_verifier:
+            log_oauth_action(
+                "token", client_id, auth_code_dict['user_id'], False,
+                "invalid_grant", "Missing code_verifier",
+                request, db
+            )
+            raise HTTPException(status_code=400, detail="Missing code_verifier")
+        
+        if not verify_code_challenge(
+            code_verifier, 
+            auth_code_dict['code_challenge'], 
+            auth_code_dict['code_challenge_method'] or "S256"
+        ):
+            log_oauth_action(
+                "token", client_id, auth_code_dict['user_id'], False,
+                "invalid_grant", "Invalid code_verifier",
+                request, db
+            )
+            raise HTTPException(status_code=400, detail="Invalid code_verifier")
+    
+    # Mark code as used
+    db.execute(
+        text("UPDATE authorization_codes SET used_at = NOW() WHERE code = :code"),
+        {"code": code}
+    )
+    
+    # Get user with group and role information (eager loading)
+    from sqlalchemy.orm import joinedload
+    user = db.query(User).options(
+        joinedload(User.group),
+        joinedload(User.role)
+    ).filter(User.id == auth_code_dict['user_id']).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+    
+    # Prepare complete user data for JWT token
+    token_data = {
+        "sub": str(user.id),
+        "email": user.email,
+        "is_admin": user.is_admin,
+        "user_id": str(user.id)
+    }
+    
+    # Add group information if available
+    if user.group_id and user.group:
+        token_data.update({
+            "group_id": str(user.group_id),
+            "group_name": user.group.name
+        })
+    
+    # Add role information if available
+    if user.role_id and user.role:
+        token_data.update({
+            "role_id": str(user.role_id),
+            "role_name": user.role.name
+        })
+    
+    # Create access token with complete user information
+    access_token = create_access_token(data=token_data)
+    
+    # Store token hash for revocation with conflict handling
+    token_hash = generate_token_hash(access_token)
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+    
+    try:
+        # Clean up expired tokens for this user/client first
+        db.execute(
+            text("""
+                DELETE FROM oauth_access_tokens 
+                WHERE user_id = :user_id AND client_id = :client_id 
+                AND (expires_at < NOW() OR revoked_at IS NOT NULL)
+            """),
+            {
+                "user_id": auth_code_dict['user_id'],
+                "client_id": client_id
+            }
+        )
+        
+        # Insert new token with conflict handling
+        db.execute(
+            text("""
+                INSERT INTO oauth_access_tokens 
+                (token_hash, client_id, user_id, scope, expires_at)
+                VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
+                ON CONFLICT (token_hash) DO UPDATE SET
+                    expires_at = EXCLUDED.expires_at,
+                    revoked_at = NULL,
+                    created_at = NOW()
+            """),
+            {
+                "token_hash": token_hash,
+                "client_id": client_id,
+                "user_id": auth_code_dict['user_id'],
+                "scope": auth_code_dict['scope'],
+                "expires_at": expires_at
+            }
+        )
+        
+        db.commit()
+        
+    except Exception as token_error:
+        logger.error(f"Token storage error: {str(token_error)}")
+        db.rollback()
+        
+        # Log the error in a separate transaction
+        log_oauth_action(
+            "token", client_id, auth_code_dict['user_id'], False,
+            "server_error", f"Token storage failed: {str(token_error)}",
+            request, db
+        )
+        raise HTTPException(status_code=500, detail="Token creation failed")
+    
+    log_oauth_action(
+        "token", client_id, auth_code_dict['user_id'], True,
+        None, None, request, db
+    )
+    
+    # Create refresh token
+    refresh_token = create_refresh_token_record(
+        auth_code_dict['user_id'],
+        client_id,
+        auth_code_dict['scope'] or "read:profile",
+        token_hash,
+        request,
+        db
+    )
+    
+    return TokenResponse(
+        access_token=access_token,
+        token_type="Bearer",
+        expires_in=settings.access_token_expire_minutes * 60,
+        scope=auth_code_dict['scope'] or "read:profile",
+        refresh_token=refresh_token,
+        refresh_expires_in=30 * 24 * 60 * 60  # 30 days in seconds
+    )
+
+
+def handle_refresh_token_grant(
+    refresh_token: str,
+    client_id: str,
+    client_secret: Optional[str],
+    request: Request,
+    db: Session
+) -> TokenResponse:
+    """Handle refresh_token grant type (RFC 6749 Section 6)"""
+    logger.info(f"Processing refresh token grant for client_id: {client_id}")
+    
+    if not refresh_token:
+        logger.error(f"Missing refresh_token parameter for client_id: {client_id}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "invalid_request", "Missing refresh_token parameter",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="Missing refresh_token parameter")
+    
+    # Validate client (refresh token requests require client authentication)
+    try:
+        logger.info(f"Validating client credentials for client_id: {client_id}")
+        client = validate_client_for_refresh_token(client_id, client_secret, db)
+        logger.info(f"Client validation successful for client_id: {client_id}")
+    except HTTPException as e:
+        # Re-raise with appropriate error for refresh token context
+        logger.error(f"Client validation failed for client_id: {client_id}, error: {e.detail}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "invalid_client", f"Client authentication failed: {e.detail}",
+            request, db
+        )
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    # Validate refresh token
+    logger.info(f"Validating refresh token for client_id: {client_id}")
+    token_info = validate_refresh_token(refresh_token, client_id, db)
+    if not token_info:
+        logger.error(f"Refresh token validation failed for client_id: {client_id}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "invalid_grant", "Invalid or expired refresh token",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="Invalid or expired refresh token")
+    
+    logger.info(f"Refresh token validation successful for client_id: {client_id}, user_id: {token_info['user_id']}")
+    
+    # Rotate refresh token (RFC 6749 security best practice)
+    try:
+        logger.info(f"Starting token rotation for client_id: {client_id}, user_id: {token_info['user_id']}")
+        new_access_token, new_refresh_token = rotate_refresh_token(
+            token_info['token_hash'],
+            token_info['user_id'],
+            client_id,
+            token_info['scope'],
+            request,
+            db
+        )
+        
+        logger.info(f"Token rotation successful for client_id: {client_id}, user_id: {token_info['user_id']}")
+        
+        # Log successful token refresh
+        log_oauth_action(
+            "token", client_id, token_info['user_id'], True,
             None, None, request, db
         )
         
         return TokenResponse(
-            access_token=access_token,
+            access_token=new_access_token,
             token_type="Bearer",
             expires_in=settings.access_token_expire_minutes * 60,
-            scope=auth_code_dict['scope'] or "read:profile"
+            scope=token_info['scope'],
+            refresh_token=new_refresh_token,
+            refresh_expires_in=30 * 24 * 60 * 60  # 30 days in seconds
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Token error: {str(e)}")
+        logger.error(f"Refresh token rotation error: {str(e)}")
         log_oauth_action(
-            "token", client_id, None, False,
-            "server_error", str(e), request, db
+            "token", client_id, token_info['user_id'], False,
+            "server_error", f"Token rotation failed: {str(e)}",
+            request, db
         )
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Token refresh failed")
 
 
 @router.get("/userinfo", response_model=UserInfoResponse)
@@ -897,6 +1434,11 @@ def userinfo(
         role_name=role_name
     )
 
+
+@router.options("/revoke")
+def revoke_options():
+    """Handle CORS preflight requests for revoke endpoint"""
+    return {}
 
 @router.post("/revoke")
 def revoke(
@@ -971,7 +1513,7 @@ def oauth_metadata():
         "userinfo_endpoint": f"{base_url}/api/oauth/userinfo",
         "revocation_endpoint": f"{base_url}/api/oauth/revoke",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
         "revocation_endpoint_auth_methods_supported": ["client_secret_post"],
         "code_challenge_methods_supported": ["S256", "plain"],

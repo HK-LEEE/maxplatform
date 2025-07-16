@@ -9,6 +9,9 @@ from ..schemas.service import (
     UserAccessibleService, MotherPageResponse
 )
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ServiceService:
     
@@ -246,7 +249,11 @@ class ServiceService:
             return True
         except Exception as e:
             db.rollback()
-            print(f"Error granting permission: {e}")
+            logger.error(f"Failed to grant service permission", extra={
+                "user_id": user_id, 
+                "service_id": service_id, 
+                "error": str(e)
+            })
             return False
     
     @staticmethod
@@ -273,7 +280,11 @@ class ServiceService:
             return True
         except Exception as e:
             db.rollback()
-            print(f"Error revoking permission: {e}")
+            logger.error(f"Failed to revoke service permission", extra={
+                "user_id": user_id, 
+                "service_id": service_id, 
+                "error": str(e)
+            })
             return False
     
     @staticmethod

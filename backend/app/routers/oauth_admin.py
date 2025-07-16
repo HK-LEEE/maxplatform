@@ -81,6 +81,28 @@ class ClientSecretResponse(BaseModel):
     message: str
 
 
+class RefreshTokenResponse(BaseModel):
+    id: str
+    user_id: str
+    user_email: str
+    user_name: str
+    client_id: str
+    client_name: str
+    scope: Optional[str]
+    expires_at: datetime
+    created_at: datetime
+    last_used_at: Optional[datetime]
+    rotation_count: int
+    client_ip: Optional[str]
+
+
+class RefreshTokenStatsResponse(BaseModel):
+    total_active_tokens: int
+    total_expired_tokens: int
+    tokens_by_client: Dict[str, int]
+    recent_rotations: int
+
+
 # Helper functions
 def check_admin_permission(current_user: User):
     """Check if user has admin permission"""
@@ -523,6 +545,229 @@ def list_oauth_audit_logs(
     except Exception as e:
         logger.error(f"Error listing OAuth audit logs: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to list OAuth audit logs")
+
+
+# Refresh Token Management Endpoints
+@router.get("/refresh-tokens", response_model=List[RefreshTokenResponse])
+def list_refresh_tokens(
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    client_id: Optional[str] = Query(None, description="Filter by client ID"),
+    include_expired: bool = Query(False, description="Include expired tokens"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List refresh tokens with optional filtering"""
+    check_admin_permission(current_user)
+    
+    try:
+        # Build query with joins
+        query = """
+            SELECT 
+                r.id, r.user_id, r.client_id, r.scope, r.expires_at, 
+                r.created_at, r.last_used_at, r.rotation_count, r.client_ip,
+                u.email as user_email,
+                COALESCE(u.display_name, u.real_name, u.email) as user_name,
+                c.client_name
+            FROM oauth_refresh_tokens r
+            LEFT JOIN users u ON r.user_id = u.id
+            LEFT JOIN oauth_clients c ON r.client_id = c.client_id
+            WHERE r.revoked_at IS NULL
+        """
+        
+        params = {}
+        
+        if not include_expired:
+            query += " AND r.expires_at > NOW()"
+        
+        if user_id:
+            query += " AND r.user_id = :user_id"
+            params["user_id"] = user_id
+        
+        if client_id:
+            query += " AND r.client_id = :client_id"
+            params["client_id"] = client_id
+        
+        query += " ORDER BY r.created_at DESC LIMIT :limit OFFSET :skip"
+        params["limit"] = limit
+        params["skip"] = skip
+        
+        result = db.execute(text(query), params)
+        
+        tokens = []
+        for row in result:
+            tokens.append(RefreshTokenResponse(
+                id=str(row.id),
+                user_id=str(row.user_id),
+                user_email=row.user_email or "Unknown",
+                user_name=row.user_name or "Unknown",
+                client_id=row.client_id,
+                client_name=row.client_name or "Unknown",
+                scope=row.scope,
+                expires_at=row.expires_at,
+                created_at=row.created_at,
+                last_used_at=row.last_used_at,
+                rotation_count=row.rotation_count or 0,
+                client_ip=row.client_ip
+            ))
+        
+        return tokens
+        
+    except Exception as e:
+        logger.error(f"Error listing refresh tokens: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list refresh tokens")
+
+
+@router.delete("/refresh-tokens/{token_id}")
+def revoke_refresh_token_by_id(
+    token_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke a specific refresh token"""
+    check_admin_permission(current_user)
+    
+    try:
+        # Revoke the refresh token
+        result = db.execute(
+            text("""
+                UPDATE oauth_refresh_tokens 
+                SET revoked_at = NOW() 
+                WHERE id = :token_id AND revoked_at IS NULL
+            """),
+            {"token_id": token_id}
+        )
+        
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Refresh token not found or already revoked")
+        
+        # Also revoke associated access tokens
+        db.execute(
+            text("""
+                UPDATE oauth_access_tokens 
+                SET revoked_at = NOW() 
+                WHERE refresh_token_hash = (
+                    SELECT token_hash FROM oauth_refresh_tokens WHERE id = :token_id
+                ) AND revoked_at IS NULL
+            """),
+            {"token_id": token_id}
+        )
+        
+        db.commit()
+        
+        return {"message": "Refresh token revoked successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error revoking refresh token: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to revoke refresh token")
+
+
+@router.delete("/refresh-tokens/user/{user_id}")
+def revoke_user_refresh_tokens(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke all refresh tokens for a specific user"""
+    check_admin_permission(current_user)
+    
+    try:
+        # Revoke all refresh tokens for the user
+        result = db.execute(
+            text("""
+                UPDATE oauth_refresh_tokens 
+                SET revoked_at = NOW() 
+                WHERE user_id = :user_id AND revoked_at IS NULL
+            """),
+            {"user_id": user_id}
+        )
+        
+        revoked_count = result.rowcount
+        
+        # Also revoke associated access tokens
+        db.execute(
+            text("""
+                UPDATE oauth_access_tokens 
+                SET revoked_at = NOW() 
+                WHERE user_id = :user_id AND revoked_at IS NULL
+            """),
+            {"user_id": user_id}
+        )
+        
+        db.commit()
+        
+        return {"message": f"Revoked {revoked_count} refresh tokens for user"}
+        
+    except Exception as e:
+        logger.error(f"Error revoking user refresh tokens: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to revoke user refresh tokens")
+
+
+@router.get("/refresh-tokens/stats", response_model=RefreshTokenStatsResponse)
+def get_refresh_token_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get refresh token statistics"""
+    check_admin_permission(current_user)
+    
+    try:
+        # Get total active tokens
+        active_result = db.execute(
+            text("""
+                SELECT COUNT(*) as count
+                FROM oauth_refresh_tokens 
+                WHERE revoked_at IS NULL AND expires_at > NOW()
+            """)
+        )
+        total_active = active_result.scalar()
+        
+        # Get total expired tokens
+        expired_result = db.execute(
+            text("""
+                SELECT COUNT(*) as count
+                FROM oauth_refresh_tokens 
+                WHERE revoked_at IS NULL AND expires_at <= NOW()
+            """)
+        )
+        total_expired = expired_result.scalar()
+        
+        # Get tokens by client
+        client_result = db.execute(
+            text("""
+                SELECT client_id, COUNT(*) as count
+                FROM oauth_refresh_tokens 
+                WHERE revoked_at IS NULL AND expires_at > NOW()
+                GROUP BY client_id
+            """)
+        )
+        tokens_by_client = {row.client_id: row.count for row in client_result}
+        
+        # Get recent rotations (last 24 hours)
+        rotation_result = db.execute(
+            text("""
+                SELECT COUNT(*) as count
+                FROM oauth_refresh_tokens 
+                WHERE last_used_at > NOW() - INTERVAL '24 hours'
+            """)
+        )
+        recent_rotations = rotation_result.scalar()
+        
+        return RefreshTokenStatsResponse(
+            total_active_tokens=total_active,
+            total_expired_tokens=total_expired,
+            tokens_by_client=tokens_by_client,
+            recent_rotations=recent_rotations
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting refresh token stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get refresh token statistics")
 
 
 @router.get("/statistics")

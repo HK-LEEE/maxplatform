@@ -53,7 +53,26 @@ CREATE TABLE IF NOT EXISTS oauth_sessions (
     granted_scopes TEXT[],
     last_used_at TIMESTAMP DEFAULT NOW(),
     created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, client_id)
+);
+
+-- OAuth 리프레시 토큰 테이블 (RFC 6749 준수)
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash VARCHAR(255) NOT NULL UNIQUE,
+    client_id VARCHAR(50) NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope TEXT,
+    access_token_hash VARCHAR(255), -- 현재 연결된 액세스 토큰
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    revoked_at TIMESTAMP,
+    last_used_at TIMESTAMP,
+    -- 보안을 위한 추가 정보
+    client_ip INET,
+    user_agent TEXT,
+    rotation_count INTEGER DEFAULT 0 -- 토큰 회전 횟수 추적
 );
 
 -- OAuth 감사 로그 테이블
@@ -77,6 +96,10 @@ CREATE INDEX IF NOT EXISTS idx_authorization_codes_expires_at ON authorization_c
 CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_token_hash ON oauth_access_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_expires_at ON oauth_access_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_sessions_user_client ON oauth_sessions(user_id, client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_token_hash ON oauth_refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires_at ON oauth_refresh_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_user_client ON oauth_refresh_tokens(user_id, client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_access_token ON oauth_refresh_tokens(access_token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_audit_logs_created_at ON oauth_audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_oauth_audit_logs_client_id ON oauth_audit_logs(client_id);
 
@@ -91,6 +114,11 @@ BEGIN
     -- 만료된 액세스 토큰 삭제 (1일 후)
     DELETE FROM oauth_access_tokens 
     WHERE expires_at < NOW() - INTERVAL '1 day';
+    
+    -- 만료된 리프레시 토큰 삭제 (1일 후)
+    DELETE FROM oauth_refresh_tokens 
+    WHERE expires_at < NOW() - INTERVAL '1 day' 
+    OR revoked_at < NOW() - INTERVAL '1 day';
     
     -- 오래된 감사 로그 삭제 (90일 후)
     DELETE FROM oauth_audit_logs 

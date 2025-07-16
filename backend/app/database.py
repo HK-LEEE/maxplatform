@@ -29,10 +29,11 @@ def get_database_engine():
     # PostgreSQL 엔진 설정
     common_args = {
         "echo": False,
+        "pool_size": 20,           # 기본 연결 풀 크기 증가
+        "max_overflow": 30,        # 추가 연결 허용
         "pool_recycle": 3600,
         "pool_pre_ping": True,
-        "pool_timeout": 30,
-        "max_overflow": 0
+        "pool_timeout": 30
     }
     
     try:

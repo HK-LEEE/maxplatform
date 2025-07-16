@@ -62,6 +62,9 @@ class User(Base):
     # JWT Refresh Token 관계 (새로운 RefreshToken 테이블 사용)
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     
+    # Security Events 관계
+    security_events = relationship("SecurityEvent", back_populates="user", lazy='dynamic')
+    
     # 서비스 관련 관계 추가 - 임시로 비활성화
     # services = relationship("Service", secondary="user_services", back_populates="users")
 

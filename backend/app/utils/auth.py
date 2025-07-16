@@ -11,8 +11,9 @@ from ..models.user import User
 import logging
 import secrets
 import uuid
+from .logging_config import get_auth_logger, log_auth_event, SecurityDataFilter
 
-logger = logging.getLogger(__name__)
+logger = get_auth_logger()
 
 # OAuth2 스키마
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
@@ -50,6 +51,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     })
     
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    
+    # Log token creation
+    log_auth_event(
+        event_type="access_token_created",
+        user_id=data.get("sub") or data.get("user_id"),
+        success=True,
+        additional_data={
+            "token_type": "access",
+            "expires_at": expire.isoformat(),
+            "jti": to_encode["jti"]
+        }
+    )
+    
     return encoded_jwt
 
 def create_refresh_token(data: dict) -> str:
@@ -66,10 +80,31 @@ def verify_token(token: str) -> Optional[str]:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: str = payload.get("sub")
         if username is None:
+            log_auth_event(
+                event_type="token_verification",
+                success=False,
+                error="Missing subject in token payload"
+            )
             return None
+        
+        # Log successful verification
+        log_auth_event(
+            event_type="token_verification",
+            user_id=username,
+            success=True,
+            additional_data={
+                "token_type": payload.get("type", "unknown"),
+                "jti": payload.get("jti")
+            }
+        )
+        
         return username
     except JWTError as e:
-        logger.warning(f"Token verification failed: {e}")
+        log_auth_event(
+            event_type="token_verification",
+            success=False,
+            error=f"JWT decode error: {str(e)}"
+        )
         return None
 
 def extract_user_info_from_token(token: str) -> Optional[Dict[str, Any]]:
@@ -167,11 +202,13 @@ def get_current_user(
             logger.warning(f"Invalid token type: {token_type}")
             raise credentials_exception
         
-        # 토큰 만료 확인
+        # 토큰 만료 확인 (JWT 라이브러리에서 자동으로 체크하지만 명시적으로 확인)
         exp = payload.get("exp")
-        if exp and datetime.utcnow().timestamp() > exp:
-            logger.warning("Token has expired")
-            raise credentials_exception
+        if exp:
+            current_timestamp = datetime.utcnow().timestamp()
+            if current_timestamp > exp:
+                logger.debug("Token has expired")
+                raise credentials_exception
             
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -181,8 +218,12 @@ def get_current_user(
     except JWTError as e:
         logger.warning(f"JWT verification failed: {e}")
         raise credentials_exception
+    except HTTPException:
+        # HTTPException은 다시 발생시키지 말고 credentials_exception으로 변환
+        raise credentials_exception
     except Exception as e:
-        logger.error(f"Unexpected error in token validation: {e}")
+        # 로그 레벨을 debug로 낮춰서 스팸 방지
+        logger.debug(f"Token validation failed: {e}")
         raise credentials_exception
     
     # 사용자 조회
@@ -244,7 +285,7 @@ def get_current_user_optional(
         return user
         
     except Exception as e:
-        logger.debug(f"Optional user authentication failed: {e}")
+        # 정상적인 시나리오이므로 로깅하지 않음 (토큰이 없거나 만료됨)
         return None
 
 def get_current_user_with_groups(
@@ -297,4 +338,69 @@ def get_current_user_optional(
     try:
         return get_current_user(request, token, db)
     except HTTPException:
+        return None
+
+def get_current_user_silent(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Silent 사용자 인증 - OAuth authorization 엔드포인트용
+    토큰이 없을 때 경고를 로그하지 않고 조용히 None을 반환
+    실제 토큰 검증 오류(형식 오류, 만료 등)만 로그에 기록
+    """
+    try:
+        # Request에서 토큰 추출
+        token = extract_token_from_request(request)
+        
+        if not token or token.strip() == "":
+            # 토큰이 없는 것은 OAuth authorization 엔드포인트에서 정상적임
+            return None
+            
+        # Bearer 접두사 제거
+        if token.startswith("Bearer "):
+            token = token[7:]
+        elif token.startswith("bearer "):
+            token = token[7:]
+        
+        # 토큰 세그먼트 확인
+        token_parts = token.split('.')
+        if len(token_parts) != 3:
+            logger.warning(f"Invalid token format: expected 3 segments, got {len(token_parts)}")
+            return None
+            
+        # JWT 디코딩 및 검증
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        
+        # 토큰 타입 확인
+        if payload.get("type") != "access":
+            logger.warning(f"Invalid token type: {payload.get('type')}")
+            return None
+            
+        # 사용자 ID 추출
+        user_id = payload.get("user_id") or payload.get("sub")
+        if not user_id:
+            logger.warning("No user ID in token payload")
+            return None
+            
+        # 데이터베이스에서 사용자 조회
+        user = get_user_by_id(db, user_id)
+        if not user:
+            logger.warning(f"User not found for ID: {user_id}")
+            return None
+            
+        # 사용자 활성 상태 확인
+        if not user.is_active:
+            logger.warning(f"User {user_id} is not active")
+            return None
+            
+        return user
+        
+    except JWTError as e:
+        # JWT 관련 오류만 로그 (실제 토큰 검증 오류)
+        logger.warning(f"JWT verification failed: {e}")
+        return None
+    except Exception as e:
+        # 기타 예외는 디버그 레벨로 로그
+        logger.debug(f"Silent token validation failed: {e}")
         return None 
