@@ -1,0 +1,93 @@
+{
+	"meta": {
+		"generatedAt": "2025-07-18T05:39:20.051Z",
+		"tasksAnalyzed": 10,
+		"totalTasks": 10,
+		"analysisCount": 10,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": false
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Create Standard OAuth User API Endpoints",
+			"complexityScore": 7,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Create router file structure and FastAPI setup, 2) Implement GET /api/users/search endpoint with OAuth validation, 3) Implement GET /api/users/email/{email} and GET /api/users/me endpoints, 4) Implement GET /api/users/{user_id} endpoint and add comprehensive error handling",
+			"reasoning": "Medium-high complexity due to OAuth integration, multiple endpoints, permission logic, and error handling requirements. Foundational task that other tasks depend on."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Create Standard OAuth Group API Endpoints",
+			"complexityScore": 8,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Create groups router file and basic FastAPI setup, 2) Implement GET /api/groups/search with filtering and permissions, 3) Implement GET /api/groups/name/{group_name} with group validation, 4) Implement GET /api/groups/my for user's groups, 5) Implement GET /api/groups/{group_id} with membership and admin access controls",
+			"reasoning": "Higher complexity than user endpoints due to group hierarchy, membership validation, admin controls, and complex permission logic. Requires understanding of group relationships."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Refactor AuthServerClient Class",
+			"complexityScore": 8,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Analyze existing AuthServerClient and identify all service token usage, 2) Update method signatures to accept user_token parameters, 3) Implement new methods search_users_by_email() and get_my_group_info(), 4) Add comprehensive error handling for 403/404 responses with custom exceptions, 5) Remove all get_service_token() calls and update existing method implementations",
+			"reasoning": "High complexity due to extensive refactoring of core authentication component, multiple method updates, new error handling patterns, and dependency on tasks 1 and 2."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Update Token Extraction Middleware",
+			"complexityScore": 5,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) Create token extraction function in auth.py for Bearer token parsing, 2) Integrate token extraction with existing get_current_user dependency, 3) Add comprehensive error handling for missing/malformed tokens and edge cases",
+			"reasoning": "Medium complexity involving middleware updates and integration with existing auth system. Critical for enabling user token flow but relatively contained scope."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "Migrate Experiment Creation Endpoints",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Identify all experiment-related endpoints that use service tokens, 2) Update create_experiment endpoint to use user token extraction and new AuthServerClient methods, 3) Update update_experiment and delete_experiment endpoints with user token flow, 4) Add proper permission error handling and validation across all experiment endpoints",
+			"reasoning": "Medium-high complexity due to multiple endpoint updates and integration with new auth patterns. Requires careful handling of experiment permissions and CRUD operations."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Migrate Group Management Endpoints",
+			"complexityScore": 7,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Identify and catalog all group management endpoints using service tokens, 2) Update group creation and modification endpoints to use user tokens, 3) Migrate group member management endpoints with proper permission validation, 4) Implement group hierarchy operations with new OAuth-compliant methods",
+			"reasoning": "High complexity due to group permission hierarchies, member management logic, and complex validation requirements. Group operations are inherently more complex than individual user operations."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Remove Service Token Dependencies",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Audit codebase to identify all service token references and dependencies, 2) Remove service_token.py utility functions and related imports, 3) Clean up config.py and environment variables related to service tokens, 4) Update database schema if needed and verify complete removal through testing",
+			"reasoning": "Medium-high complexity involving comprehensive cleanup across multiple files and systems. Requires careful verification to ensure no service token dependencies remain."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "Implement Enhanced Error Handling",
+			"complexityScore": 5,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) Create standardized error response classes and custom exception types, 2) Implement consistent error handling across all endpoints with proper HTTP status codes, 3) Add comprehensive logging and audit trail functionality for authorization failures",
+			"reasoning": "Medium complexity focused on error handling patterns and logging. Well-defined scope but requires consistency across many endpoints and proper integration with existing systems."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "Update API Documentation and Testing",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break down into: 1) Update OpenAPI/Swagger documentation with new endpoints and OAuth requirements, 2) Create comprehensive test_oauth_standard_apis.py script as specified in PRD, 3) Add detailed endpoint documentation with examples and permission scenarios",
+			"reasoning": "Lower-medium complexity primarily involving documentation updates and test script creation. Important for usability but less technically complex than implementation tasks."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "Performance Optimization and Caching",
+			"complexityScore": 7,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Implement token validation caching with appropriate TTL strategies, 2) Add user/group information caching layer, 3) Implement retry logic with exponential backoff for external API calls, 4) Add timeout configurations and connection pooling, 5) Optimize database queries and add performance monitoring",
+			"reasoning": "High complexity involving multiple optimization strategies, caching implementation, and performance monitoring. Requires deep understanding of system performance characteristics and careful testing."
+		}
+	]
+}

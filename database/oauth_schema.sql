@@ -177,7 +177,10 @@ INSERT INTO oauth_scopes (scope, description, category, is_sensitive) VALUES
 ('manage:workspaces', '작업공간 관리', 'workspaces', false),
 ('manage:apis', 'API 관리 및 자동화', 'apis', false),
 ('manage:models', '머신러닝 모델 관리', 'models', false),
-('admin:full', '전체 관리자 권한', 'admin', true)
+('admin:full', '전체 관리자 권한', 'admin', true),
+('admin:oauth', 'OAuth 클라이언트 및 토큰 관리', 'admin', true),
+('admin:users', '사용자 관리 및 계정 제어', 'admin', true),
+('admin:system', '시스템 설정 및 구성 관리', 'admin', true)
 
 ON CONFLICT (scope) DO UPDATE SET
     description = EXCLUDED.description,

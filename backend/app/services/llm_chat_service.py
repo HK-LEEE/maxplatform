@@ -12,7 +12,7 @@ from fastapi import HTTPException, status
 from ..models.llm_chat import (
     MAXLLM_Persona, MAXLLM_Prompt_Template, MAXLLM_Chat, 
     MAXLLM_Message, MAXLLM_Message_Feedback, MAXLLM_Shared_Chat,
-    MAXLLM_Flow_Publish_Access, MAXLLM_Model, MAXLLM_Chat_Backup, MAXLLM_Message_Backup,
+    MAXLLM_Flow_Publish_Access, MAXLLM_Model, MAXLLM_Model_Permission, MAXLLM_Chat_Backup, MAXLLM_Message_Backup,
     OwnerType, SenderType, PublishScope, ModelType
 )
 from ..schemas.llm_chat import (
@@ -973,35 +973,77 @@ class LLMChatService:
             raise
     
     async def get_accessible_llm_models(self, user_info: Dict[str, Any]) -> List[LLMModelResponse]:
-        """사용자가 접근 가능한 LLM 모델 목록 조회"""
+        """사용자가 접근 가능한 LLM 모델 목록 조회 (소유권 + 권한 기반)"""
         try:
             user_id = str(user_info["user_id"])
             user_groups = self._get_user_groups(user_info)
             
-            # 개인 소유 모델
-            conditions = [
+            # 기본 조건: 활성화된 모델만
+            base_condition = MAXLLM_Model.is_active == True
+            
+            # 소유권 기반 조건들
+            ownership_conditions = [
+                # 개인 소유 모델
                 and_(
                     MAXLLM_Model.owner_type == OwnerType.USER,
-                    MAXLLM_Model.owner_id == user_id,
-                    MAXLLM_Model.is_active == True
+                    MAXLLM_Model.owner_id == user_id
                 )
             ]
             
             # 그룹 소유 모델
             if user_groups:
-                conditions.append(
+                ownership_conditions.append(
                     and_(
                         MAXLLM_Model.owner_type == OwnerType.GROUP,
-                        MAXLLM_Model.owner_id.in_(user_groups),
-                        MAXLLM_Model.is_active == True
+                        MAXLLM_Model.owner_id.in_(user_groups)
                     )
                 )
             
+            # 권한 기반 조건들 (MAXLLM_Model_Permission 테이블 활용)
+            permission_conditions = []
+            
+            # 개인에게 직접 부여된 권한
+            permission_conditions.append(
+                MAXLLM_Model.id.in_(
+                    self.db.query(MAXLLM_Model_Permission.model_id)
+                    .filter(
+                        and_(
+                            MAXLLM_Model_Permission.grantee_type == OwnerType.USER,
+                            MAXLLM_Model_Permission.grantee_id == user_id
+                        )
+                    )
+                )
+            )
+            
+            # 그룹에 부여된 권한
+            if user_groups:
+                permission_conditions.append(
+                    MAXLLM_Model.id.in_(
+                        self.db.query(MAXLLM_Model_Permission.model_id)
+                        .filter(
+                            and_(
+                                MAXLLM_Model_Permission.grantee_type == OwnerType.GROUP,
+                                MAXLLM_Model_Permission.grantee_id.in_(user_groups)
+                            )
+                        )
+                    )
+                )
+            
+            # 전체 조건 결합: (소유권 OR 권한) AND 활성화
+            final_condition = and_(
+                base_condition,
+                or_(
+                    or_(*ownership_conditions),
+                    or_(*permission_conditions) if permission_conditions else False
+                )
+            )
+            
             models = self.db.query(MAXLLM_Model)\
-                .filter(or_(*conditions))\
+                .filter(final_condition)\
                 .order_by(MAXLLM_Model.created_at.desc())\
                 .all()
             
+            logger.info(f"사용자 {user_id}가 접근 가능한 모델 수: {len(models)}")
             return [LLMModelResponse.model_validate(model) for model in models]
             
         except Exception as e:

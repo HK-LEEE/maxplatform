@@ -490,3 +490,51 @@ async def revoke_model_permission(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"권한 취소 실패: {str(e)}"
         )
+
+@router.get("/admin/permissions/matrix")
+async def get_permissions_matrix(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """권한 매트릭스를 위한 모든 권한 정보 조회"""
+    try:
+        # 관리자 권한 확인
+        if not current_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="관리자 권한이 필요합니다"
+            )
+        
+        # 모든 권한 조회
+        permissions = db.query(MAXLLM_Model_Permission).all()
+        
+        permission_data = []
+        for permission in permissions:
+            # 권한 대상자 이름 조회
+            grantee_name = None
+            if permission.grantee_type == OwnerType.USER:
+                grantee = db.query(User).filter(User.id == permission.grantee_id).first()
+                grantee_name = grantee.real_name if grantee else "Unknown User"
+            elif permission.grantee_type == OwnerType.GROUP:
+                grantee = db.query(Group).filter(Group.id == permission.grantee_id).first()
+                grantee_name = grantee.name if grantee else "Unknown Group"
+            
+            permission_data.append({
+                "id": permission.id,
+                "model_id": permission.model_id,
+                "grantee_type": permission.grantee_type.value,
+                "grantee_id": permission.grantee_id,
+                "grantee_name": grantee_name,
+                "granted_by": permission.granted_by,
+                "created_at": permission.created_at.isoformat() if permission.created_at else None
+            })
+        
+        return permission_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"권한 매트릭스 조회 중 오류가 발생했습니다: {str(e)}"
+        )

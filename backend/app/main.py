@@ -33,12 +33,14 @@ from .models.security_event import (
 
 # 모델 import 후에 database 모듈 import
 from .database import create_tables
-from .routers import auth, workspace, jupyter, files, llm, service, admin, chroma, llm_chat, oauth_admin
+from .routers import auth, workspace, jupyter, files, llm, service, admin, chroma, llm_chat, oauth_admin, users, groups
 # from .llmops import router as llmops_router  # 임시 비활성화 (chromadb 의존성)
 # Flow Studio 라우터 추가
 from .routers import flow_studio
 # OAuth 2.0 라우터 추가
 from .api import oauth_simple, llm_models, security_events
+# Group Tree 라우터 추가
+from .routers import group_tree
 
 # Setup logging configuration with daily rotation
 setup_logging(
@@ -123,6 +125,11 @@ app.include_router(oauth_admin.router, tags=["OAuth Admin"])
 app.include_router(llm_models.router, tags=["LLM Models"])
 # 보안 이벤트 라우터 추가
 app.include_router(security_events.router, tags=["Security Events"])
+# 그룹 트리 라우터 추가
+app.include_router(group_tree.router, tags=["Group Tree"])
+# 사용자 및 그룹 API 라우터 추가 (OAuth 표준 준수)
+app.include_router(users.router)
+app.include_router(groups.router)
 
 # 정적 파일 서빙 (업로드된 파일용)
 if not os.path.exists("data"):

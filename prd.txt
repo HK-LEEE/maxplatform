@@ -1,0 +1,406 @@
+# MAX Platform - Next Phase Implementation PRD
+## Product Requirements Document
+
+### Executive Summary
+
+MAX Platform has successfully implemented a comprehensive OAuth 2.0 Single Sign-On (SSO) system with robust security features, token management, and multi-application support. The current implementation provides a solid foundation for enterprise-grade authentication across the MAX ecosystem (FlowStudio, Lab, TeamSync, Workspace, QueryHub, LLM, APA, MLOps).
+
+**Next Phase Objective**: Enhance the authentication and authorization system to enterprise-grade standards with OpenID Connect, multi-factor authentication, social login integration, and advanced permission management.
+
+### Current State Analysis
+
+#### ✅ Implemented Features
+- **OAuth 2.0 Authorization Server** with PKCE support
+- **JWT Token Management** (access tokens, refresh tokens with rotation)
+- **Multi-Application SSO** for 8 MAX Platform applications
+- **User Management** with UUID-based users, roles, and groups
+- **Security Features** (audit logging, IP tracking, rate limiting)
+- **Database Schema** optimized for OAuth workflows
+- **Frontend Integration** with React context and utilities
+- **API Endpoints** for authentication and OAuth administration
+
+#### 🔧 Technical Strengths
+- Modern security practices (PKCE, token rotation, SHA256 hashing)
+- Comprehensive audit logging for compliance
+- Multi-database support (PostgreSQL, MySQL, MSSQL)
+- Graceful token refresh mechanisms
+- Cross-origin authentication support
+
+### Gap Analysis
+
+#### 🚫 Missing Critical Features
+1. **OpenID Connect (OIDC)** - No ID tokens or OIDC discovery
+2. **Multi-Factor Authentication** - Single-factor authentication only
+3. **Social Login** - No Google/Microsoft/GitHub integration
+4. **Enterprise Federation** - No SAML or enterprise SSO
+5. **Advanced Permissions** - Limited scope granularity
+6. **Session Management** - No distributed session storage
+7. **Device Authentication** - No device flow support
+8. **Service Authentication** - No client credentials flow
+
+#### ⚠️ Security & Compliance Gaps
+- No multi-factor authentication requirements
+- Limited compliance reporting (GDPR, SOC2)
+- No geographic session restrictions
+- No password policy enforcement
+- No account lockout mechanisms
+- No security key support
+
+#### 📊 User Experience Gaps
+- No password strength indicators
+- No social login convenience
+- No remember me functionality
+- No account recovery workflows
+- No security dashboard for users
+
+### Next Phase Requirements
+
+## Phase 1: Core Security Enhancements (Priority: HIGH)
+
+### 1.1 Multi-Factor Authentication (MFA)
+**Requirement**: Implement TOTP-based MFA with backup codes
+- **TOTP Support**: Time-based One-Time Passwords (RFC 6238)
+- **QR Code Generation**: For authenticator app setup
+- **Backup Codes**: 10 single-use recovery codes
+- **MFA Enforcement**: Admin-configurable MFA requirements
+- **API Endpoints**: `/api/auth/mfa/setup`, `/api/auth/mfa/verify`, `/api/auth/mfa/backup-codes`
+- **Database Schema**: `user_mfa_settings`, `mfa_backup_codes` tables
+- **Frontend Components**: MFA setup wizard, verification forms
+
+### 1.2 Enhanced Password Security
+**Requirement**: Implement password policies and security controls
+- **Password Policies**: Minimum 12 characters, complexity requirements
+- **Password History**: Prevent reuse of last 12 passwords
+- **Account Lockout**: 5 failed attempts = 15-minute lockout
+- **Password Strength Meter**: Real-time password strength feedback
+- **Breach Detection**: Integration with HaveIBeenPwned API
+- **Force Password Reset**: Admin capability for security incidents
+
+### 1.3 Session Security Improvements
+**Requirement**: Enhanced session management and monitoring
+- **Concurrent Session Limits**: Maximum 5 active sessions per user
+- **Session Geolocation**: Track and display session locations
+- **Suspicious Activity Detection**: Unusual login pattern alerts
+- **Session Management UI**: User dashboard for active sessions
+- **Remote Session Termination**: Kill specific or all sessions
+- **Session Fingerprinting**: Device and browser fingerprinting
+
+## Phase 2: Identity Federation & Social Login (Priority: HIGH)
+
+### 2.1 OpenID Connect Implementation
+**Requirement**: Full OIDC compliance with ID tokens
+- **ID Token Generation**: Signed JWT with user claims
+- **OIDC Discovery**: `/.well-known/openid-configuration` endpoint
+- **UserInfo Endpoint**: Enhanced with OIDC claims
+- **Scope Expansion**: `openid`, `profile`, `email` scopes
+- **Claims Mapping**: Configurable claim mapping for applications
+- **Token Validation**: OIDC token validation utilities
+
+### 2.2 Social Login Integration
+**Requirement**: Support for major social identity providers
+- **Google OAuth**: Google Sign-In integration
+- **Microsoft OAuth**: Azure AD / Microsoft Account support
+- **GitHub OAuth**: Developer-focused authentication
+- **Generic OIDC**: Support for any OIDC-compliant provider
+- **Account Linking**: Link social accounts to existing users
+- **Provider Management**: Admin UI for configuring providers
+
+### 2.3 Enterprise Federation
+**Requirement**: SAML 2.0 support for enterprise customers
+- **SAML Identity Provider**: Act as SAML IdP for applications
+- **SAML Service Provider**: Integrate with enterprise SAML IdPs
+- **Metadata Management**: SAML metadata generation and consumption
+- **Attribute Mapping**: Configurable SAML attribute mapping
+- **Single Logout**: SAML SLO support across applications
+
+## Phase 3: Advanced Authorization & Permissions (Priority: MEDIUM)
+
+### 3.1 Fine-Grained Permission System
+**Requirement**: Detailed permission and scope management
+- **Resource-Based Permissions**: Permissions per resource type
+- **Dynamic Scopes**: Context-aware scope generation
+- **Permission Inheritance**: Role-based permission inheritance
+- **Conditional Access**: Time/location-based access controls
+- **API Scopes**: Fine-grained API access control
+- **Audit Trail**: Detailed permission usage tracking
+
+### 3.2 Team and Organization Management
+**Requirement**: Multi-tenant organization support
+- **Organization Hierarchy**: Support for departments and teams
+- **Organization-Scoped Permissions**: Permissions within organizations
+- **Cross-Organization Access**: Secure resource sharing
+- **Organization Admin Roles**: Delegated administration
+- **Invitation System**: Secure team member invitations
+
+### 3.3 API Key Management
+**Requirement**: Service-to-service authentication
+- **API Key Generation**: Secure API key creation and management
+- **Key Rotation**: Automated and manual key rotation
+- **Scope-Limited Keys**: API keys with specific permissions
+- **Usage Analytics**: API key usage monitoring
+- **Rate Limiting**: Per-key rate limiting
+
+## Phase 4: User Experience & Developer Tools (Priority: MEDIUM)
+
+### 4.1 Enhanced Authentication UI/UX
+**Requirement**: Improved user interface and experience
+- **Modern Login UI**: Responsive, accessible login forms
+- **Password Manager Integration**: Proper autocomplete attributes
+- **Social Login Buttons**: Branded social provider buttons
+- **Progressive Enrollment**: Gradual MFA adoption
+- **Security Dashboard**: User security settings and activity
+- **Customizable Themes**: White-label authentication pages
+
+### 4.2 Developer Experience Improvements
+**Requirement**: Better tools and documentation for developers
+- **SDKs and Libraries**: Official client libraries for popular languages
+- **Comprehensive Documentation**: API docs, integration guides
+- **Testing Tools**: OAuth playground and testing utilities
+- **Webhook Support**: Real-time notifications for auth events
+- **Admin APIs**: Programmatic user and application management
+- **Migration Tools**: Data import/export utilities
+
+### 4.3 Monitoring and Analytics
+**Requirement**: Comprehensive monitoring and reporting
+- **Authentication Analytics**: Login patterns, failure rates
+- **Security Dashboards**: Real-time security monitoring
+- **Compliance Reporting**: GDPR, SOC2, audit reports
+- **Performance Monitoring**: Authentication service performance
+- **Alert System**: Security incident notifications
+- **Usage Statistics**: Application usage analytics
+
+## Phase 5: Compliance & Enterprise Features (Priority: LOW)
+
+### 5.1 Compliance Framework
+**Requirement**: Meet enterprise compliance requirements
+- **GDPR Compliance**: Data protection and privacy controls
+- **SOC2 Compliance**: Security audit trail requirements
+- **Data Retention Policies**: Configurable data retention
+- **Right to Deletion**: GDPR data deletion workflows
+- **Consent Management**: User consent tracking and management
+- **Privacy Controls**: User privacy preference management
+
+### 5.2 Enterprise Security Features
+**Requirement**: Advanced security for enterprise customers
+- **Risk-Based Authentication**: Adaptive authentication based on risk
+- **Geographic Restrictions**: Country/region-based access controls
+- **Time-Based Access**: Business hours access restrictions
+- **Device Registration**: Trusted device management
+- **Certificate Authentication**: Client certificate support
+- **Hardware Security Keys**: FIDO2/WebAuthn support
+
+### 5.3 High Availability & Scalability
+**Requirement**: Enterprise-grade infrastructure
+- **Multi-Region Deployment**: Geographic load distribution
+- **Database Clustering**: High-availability database setup
+- **Redis Session Storage**: Distributed session management
+- **Load Balancing**: Application load balancing strategies
+- **Backup and Recovery**: Automated backup procedures
+- **Disaster Recovery**: Cross-region failover capabilities
+
+### Technical Specifications
+
+#### Database Schema Extensions
+```sql
+-- MFA Tables
+CREATE TABLE user_mfa_settings (
+    user_id UUID PRIMARY KEY REFERENCES users(id),
+    totp_secret VARCHAR(255),
+    is_enabled BOOLEAN DEFAULT FALSE,
+    backup_codes_generated_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE mfa_backup_codes (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    code_hash VARCHAR(255),
+    used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Social Login Tables
+CREATE TABLE social_accounts (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    provider VARCHAR(50),
+    provider_user_id VARCHAR(255),
+    email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id)
+);
+
+-- Enhanced Session Tables
+CREATE TABLE user_sessions (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    session_token VARCHAR(255),
+    ip_address INET,
+    user_agent TEXT,
+    location JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP
+);
+
+-- Organization Tables
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    domain VARCHAR(255),
+    settings JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE organization_members (
+    id UUID PRIMARY KEY,
+    organization_id UUID REFERENCES organizations(id),
+    user_id UUID REFERENCES users(id),
+    role VARCHAR(50),
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### API Endpoint Extensions
+```
+# MFA Endpoints
+POST   /api/auth/mfa/setup
+POST   /api/auth/mfa/verify
+GET    /api/auth/mfa/backup-codes
+POST   /api/auth/mfa/regenerate-backup-codes
+DELETE /api/auth/mfa/disable
+
+# Social Login Endpoints
+GET    /api/auth/social/providers
+GET    /api/auth/social/{provider}/authorize
+POST   /api/auth/social/{provider}/callback
+POST   /api/auth/social/link
+DELETE /api/auth/social/unlink/{provider}
+
+# Session Management Endpoints
+GET    /api/auth/sessions
+DELETE /api/auth/sessions/{session_id}
+DELETE /api/auth/sessions/all
+
+# Organization Endpoints
+GET    /api/organizations
+POST   /api/organizations
+GET    /api/organizations/{org_id}/members
+POST   /api/organizations/{org_id}/invite
+DELETE /api/organizations/{org_id}/members/{user_id}
+
+# OIDC Endpoints
+GET    /.well-known/openid-configuration
+GET    /api/oidc/userinfo
+POST   /api/oidc/token
+GET    /api/oidc/jwks
+```
+
+#### Frontend Component Requirements
+```typescript
+// New React Components Needed
+- MFASetupWizard
+- SocialLoginButtons
+- SessionManagement
+- SecurityDashboard
+- OrganizationSettings
+- PasswordStrengthMeter
+- BackupCodeDisplay
+- DeviceManagement
+```
+
+### Success Metrics
+
+#### Security Metrics
+- **MFA Adoption Rate**: Target 80% within 6 months
+- **Password Strength**: Average score >75/100
+- **Failed Login Attempts**: <2% of total login attempts
+- **Account Takeover Incidents**: Zero confirmed incidents
+- **Security Alert Response Time**: <15 minutes average
+
+#### User Experience Metrics
+- **Login Success Rate**: >99.5%
+- **Social Login Usage**: 40% of logins via social providers
+- **Password Reset Requests**: <5% monthly active users
+- **Session Duration**: Average 4+ hours for valid sessions
+- **User Satisfaction**: >4.5/5 in post-login surveys
+
+#### Technical Performance Metrics
+- **Authentication Latency**: <200ms average response time
+- **System Availability**: 99.9% uptime
+- **Token Refresh Success**: >99.8% automatic refresh success
+- **API Error Rate**: <0.1% across all auth endpoints
+- **Database Query Performance**: <50ms average query time
+
+### Timeline & Milestones
+
+#### Phase 1: Core Security (Months 1-3)
+- **Month 1**: MFA implementation and testing
+- **Month 2**: Password security and account lockout
+- **Month 3**: Enhanced session management and monitoring
+
+#### Phase 2: Federation & Social (Months 4-6)
+- **Month 4**: OpenID Connect implementation
+- **Month 5**: Social login provider integration
+- **Month 6**: Enterprise SAML federation
+
+#### Phase 3: Advanced Authorization (Months 7-9)
+- **Month 7**: Fine-grained permission system
+- **Month 8**: Organization and team management
+- **Month 9**: API key management system
+
+#### Phase 4: UX & Developer Tools (Months 10-12)
+- **Month 10**: Enhanced UI/UX and themes
+- **Month 11**: Developer tools and SDKs
+- **Month 12**: Monitoring and analytics platform
+
+#### Phase 5: Enterprise Features (Months 13-15)
+- **Month 13**: Compliance framework implementation
+- **Month 14**: Advanced enterprise security features
+- **Month 15**: High availability and scalability
+
+### Risk Assessment & Mitigation
+
+#### High-Risk Areas
+1. **MFA Implementation**: Risk of user lockout
+   - Mitigation: Comprehensive backup code system and admin override
+2. **Social Login Security**: Risk of account linking vulnerabilities
+   - Mitigation: Email verification for account linking
+3. **Session Management**: Risk of performance impact
+   - Mitigation: Redis caching and optimized session storage
+4. **Database Migrations**: Risk of data loss during schema changes
+   - Mitigation: Comprehensive backup strategy and rollback procedures
+
+#### Medium-Risk Areas
+1. **OIDC Compliance**: Risk of incompatibility with existing applications
+   - Mitigation: Backward compatibility maintenance and gradual migration
+2. **Performance Scaling**: Risk of authentication bottlenecks
+   - Mitigation: Load testing and horizontal scaling preparation
+
+### Dependencies & Prerequisites
+
+#### External Dependencies
+- Redis for distributed session storage
+- Email service provider for notifications
+- SMS provider for MFA (future consideration)
+- Certificate management for SAML
+- Geographic IP database for location services
+
+#### Internal Dependencies
+- Frontend framework updates for new components
+- Database migration procedures
+- CI/CD pipeline updates for new services
+- Documentation and training materials
+
+### Conclusion
+
+This PRD outlines a comprehensive roadmap for enhancing the MAX Platform authentication system from its current robust OAuth 2.0 implementation to an enterprise-grade identity and access management solution. The phased approach ensures manageable development cycles while maintaining system stability and security throughout the implementation process.
+
+The proposed enhancements will position MAX Platform as a leader in secure, user-friendly authentication solutions while meeting the evolving needs of both individual users and enterprise customers.
+
+---
+
+**Document Version**: 1.0  
+**Last Updated**: 2025-07-17  
+**Next Review**: 2025-08-17  
+**Owner**: MAX Platform Development Team

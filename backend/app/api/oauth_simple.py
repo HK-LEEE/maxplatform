@@ -1058,6 +1058,7 @@ def token(
     client_secret: Optional[str] = Form(None),
     code_verifier: Optional[str] = Form(None),
     refresh_token: Optional[str] = Form(None),
+    scope: Optional[str] = Form(None),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
@@ -1066,6 +1067,7 @@ def token(
     Supports:
     - authorization_code grant type: Exchanges authorization code for access token
     - refresh_token grant type: Refreshes access token using refresh token
+    - client_credentials grant type: Service-to-service authentication
     """
     try:
         # Clean up expired tokens periodically
@@ -1079,6 +1081,10 @@ def token(
         elif grant_type == "refresh_token":
             return handle_refresh_token_grant(
                 refresh_token, client_id, client_secret, request, db
+            )
+        elif grant_type == "client_credentials":
+            return handle_client_credentials_grant(
+                client_id, client_secret, scope, request, db
             )
         else:
             raise HTTPException(status_code=400, detail="Unsupported grant_type")
@@ -1382,6 +1388,216 @@ def handle_refresh_token_grant(
         raise HTTPException(status_code=500, detail="Token refresh failed")
 
 
+def handle_client_credentials_grant(
+    client_id: str,
+    client_secret: Optional[str],
+    scope: Optional[str],
+    request: Request,
+    db: Session
+) -> TokenResponse:
+    """Handle client_credentials grant type for service authentication"""
+    logger.info(f"Processing client credentials grant for client_id: {client_id}")
+    
+    if not client_secret:
+        logger.error(f"Missing client_secret for client_credentials grant: {client_id}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "invalid_request", "Missing client_secret for confidential client",
+            request, db
+        )
+        raise HTTPException(status_code=400, detail="client_secret required for client_credentials grant")
+    
+    # Validate client exists and is confidential
+    try:
+        result = db.execute(
+            text("SELECT * FROM oauth_clients WHERE client_id = :client_id AND is_active = true"),
+            {"client_id": client_id}
+        )
+        client = result.first()
+        
+        if not client:
+            logger.error(f"Client not found: {client_id}")
+            log_oauth_action(
+                "token", client_id, None, False,
+                "invalid_client", "Client not found",
+                request, db
+            )
+            raise HTTPException(status_code=401, detail="Invalid client_id")
+        
+        # Convert to dict for easier access
+        client_dict = {
+            'id': client[0],
+            'client_id': client[1],
+            'client_secret': client[2],
+            'client_name': client[3],
+            'description': client[4],
+            'redirect_uris': client[5],
+            'allowed_scopes': client[6],
+            'is_confidential': client[7],
+            'is_active': client[8]
+        }
+        
+        # Only confidential clients can use client_credentials grant
+        if not client_dict['is_confidential']:
+            logger.error(f"Public client attempted client_credentials grant: {client_id}")
+            log_oauth_action(
+                "token", client_id, None, False,
+                "unauthorized_client", "Public clients cannot use client_credentials grant",
+                request, db
+            )
+            raise HTTPException(status_code=401, detail="Only confidential clients can use client_credentials grant")
+        
+        # Verify client secret
+        if client_secret != client_dict['client_secret']:
+            logger.error(f"Invalid client_secret for client_id: {client_id}")
+            log_oauth_action(
+                "token", client_id, None, False,
+                "invalid_client", "Invalid client_secret",
+                request, db
+            )
+            raise HTTPException(status_code=401, detail="Invalid client_secret")
+        
+        # Check if client is intended for service use (no redirect_uris indicates service client)
+        if client_dict['redirect_uris'] and len(client_dict['redirect_uris']) > 0:
+            logger.warning(f"Web client attempting client_credentials grant: {client_id}")
+        
+        logger.info(f"Client validation successful for service client: {client_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Client validation error for client_credentials: {str(e)}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "server_error", f"Client validation failed: {str(e)}",
+            request, db
+        )
+        raise HTTPException(status_code=500, detail="Client validation failed")
+    
+    # Validate and process requested scopes
+    try:
+        if scope:
+            requested_scopes = scope.split()
+        else:
+            # Default scopes for service clients (admin-level access)
+            requested_scopes = ["admin:oauth", "admin:users", "admin:system"]
+        
+        # Ensure requested scopes are within allowed scopes for this client
+        allowed_scopes = client_dict['allowed_scopes'] or []
+        
+        # Add default service scopes if not present in client config
+        default_service_scopes = ["admin:oauth", "admin:users", "admin:system"]
+        for default_scope in default_service_scopes:
+            if default_scope not in allowed_scopes:
+                allowed_scopes.append(default_scope)
+        
+        # Check if all requested scopes are allowed
+        invalid_scopes = [s for s in requested_scopes if s not in allowed_scopes]
+        if invalid_scopes:
+            logger.error(f"Invalid scopes requested for client {client_id}: {invalid_scopes}")
+            log_oauth_action(
+                "token", client_id, None, False,
+                "invalid_scope", f"Invalid scopes: {', '.join(invalid_scopes)}",
+                request, db
+            )
+            raise HTTPException(status_code=400, detail=f"Invalid scope(s): {', '.join(invalid_scopes)}")
+        
+        granted_scope = " ".join(requested_scopes)
+        logger.info(f"Granted scopes for service client {client_id}: {granted_scope}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Scope validation error: {str(e)}")
+        log_oauth_action(
+            "token", client_id, None, False,
+            "server_error", f"Scope validation failed: {str(e)}",
+            request, db
+        )
+        raise HTTPException(status_code=500, detail="Scope validation failed")
+    
+    # Create service token (no user_id, longer expiration)
+    try:
+        # Service tokens have longer expiration (24 hours by default)
+        service_token_expire_hours = 24
+        
+        token_data = {
+            "sub": f"service:{client_id}",  # Service identifier
+            "client_id": client_id,
+            "scope": granted_scope,
+            "token_type": "service",
+            "iss": "maxplatform"
+        }
+        
+        # Create service access token with extended expiration
+        service_token_expires_delta = timedelta(hours=service_token_expire_hours)
+        access_token = create_access_token(data=token_data, expires_delta=service_token_expires_delta)
+        
+        # Store service token (no user_id for service tokens)
+        token_hash = generate_token_hash(access_token)
+        expires_at = datetime.utcnow() + service_token_expires_delta
+        
+        # Clean up any existing service tokens for this client
+        db.execute(
+            text("""
+                DELETE FROM oauth_access_tokens 
+                WHERE client_id = :client_id AND user_id IS NULL
+                AND (expires_at < NOW() OR revoked_at IS NOT NULL)
+            """),
+            {"client_id": client_id}
+        )
+        
+        # Insert new service token
+        db.execute(
+            text("""
+                INSERT INTO oauth_access_tokens 
+                (token_hash, client_id, user_id, scope, expires_at)
+                VALUES (:token_hash, :client_id, NULL, :scope, :expires_at)
+                ON CONFLICT (token_hash) DO UPDATE SET
+                    expires_at = EXCLUDED.expires_at,
+                    revoked_at = NULL,
+                    created_at = NOW()
+            """),
+            {
+                "token_hash": token_hash,
+                "client_id": client_id,
+                "scope": granted_scope,
+                "expires_at": expires_at
+            }
+        )
+        
+        db.commit()
+        
+        logger.info(f"Service token created successfully for client: {client_id}")
+        
+        # Log successful service token creation
+        log_oauth_action(
+            "token", client_id, None, True,
+            None, f"Service token created with scopes: {granted_scope}",
+            request, db
+        )
+        
+        # Return token response (no refresh token for client_credentials)
+        return TokenResponse(
+            access_token=access_token,
+            token_type="Bearer",
+            expires_in=service_token_expire_hours * 3600,  # Convert to seconds
+            scope=granted_scope,
+            refresh_token=None,  # No refresh token for client_credentials grant
+            refresh_expires_in=None
+        )
+        
+    except Exception as e:
+        logger.error(f"Service token creation failed for client {client_id}: {str(e)}")
+        db.rollback()
+        log_oauth_action(
+            "token", client_id, None, False,
+            "server_error", f"Service token creation failed: {str(e)}",
+            request, db
+        )
+        raise HTTPException(status_code=500, detail="Service token creation failed")
+
+
 @router.get("/userinfo", response_model=UserInfoResponse)
 def userinfo(
     current_user: User = Depends(get_current_user_optional),
@@ -1513,7 +1729,7 @@ def oauth_metadata():
         "userinfo_endpoint": f"{base_url}/api/oauth/userinfo",
         "revocation_endpoint": f"{base_url}/api/oauth/revoke",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
         "revocation_endpoint_auth_methods_supported": ["client_secret_post"],
         "code_challenge_methods_supported": ["S256", "plain"],
@@ -1526,6 +1742,9 @@ def oauth_metadata():
             "manage:experiments",
             "manage:workspaces",
             "manage:apis",
-            "manage:models"
+            "manage:models",
+            "admin:oauth",
+            "admin:users",
+            "admin:system"
         ]
     }

@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
     refresh_token_expire_days: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
+    # Service Token Configuration
+    service_token: str = os.getenv("SERVICE_TOKEN", "")
+    service_client_id: str = os.getenv("SERVICE_CLIENT_ID", "maxplatform-service")
+    service_client_secret: str = os.getenv("SERVICE_CLIENT_SECRET", "service_maxplatform_2025_dev_secret")
+    service_token_expire_hours: int = int(os.getenv("SERVICE_TOKEN_EXPIRE_HOURS", "24"))
+    
     # Jupyter
     jupyter_base_url: str = os.getenv("JUPYTER_BASE_URL", "http://localhost")
     jupyter_port_start: int = 8888

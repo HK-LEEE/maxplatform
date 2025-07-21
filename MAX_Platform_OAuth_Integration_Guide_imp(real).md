@@ -19,6 +19,15 @@
 ### OAuth 2.0 플로우
 MAX Platform에서는 **Authorization Code Flow with PKCE**를 사용한 팝업 기반 인증을 구현합니다.
 
+### 현재 구현된 인증 시스템 특징
+- **이중 OAuth 구현**: 표준 OAuth (`oauth.py`)와 간소화된 OAuth (`oauth_simple.py`) 제공
+- **고급 토큰 회전**: Graceful refresh token rotation with 10초 유예 기간
+- **토큰 패밀리 추적**: 부모-자식 관계를 통한 보안 강화
+- **종합 감사 로깅**: 모든 OAuth 활동 추적 및 보안 모니터링
+- **크로스 플랫폼 토큰 공유**: 쿠키 기반 SSO 토큰 공유
+- **자동 토큰 새로고침**: 대기열 관리 및 동시 요청 처리
+- **JWT 보안**: 고유 식별자, nonce, SHA256 해싱
+
 ```mermaid
 sequenceDiagram
     participant User as 사용자
@@ -42,6 +51,31 @@ sequenceDiagram
 - **PKCE 보안**: Code Challenge/Verifier 사용
 - **PostMessage 통신**: 안전한 크로스 윈도우 통신
 - **표준 준수**: OAuth 2.0 RFC 8252 준수
+
+### 토큰 회전(Token Rotation) 시스템
+MAX Platform은 보안 강화를 위한 고급 토큰 회전 시스템을 구현합니다:
+
+```mermaid
+sequenceDiagram
+    participant Client as 클라이언트
+    participant Auth as MAX Platform
+    participant DB as 데이터베이스
+    
+    Client->>Auth: refresh_token으로 새 토큰 요청
+    Auth->>DB: 기존 refresh_token 검증
+    Auth->>DB: 새 토큰 패밀리 생성
+    Note over Auth,DB: 기존 토큰은 10초 유예기간 동안 유효
+    Auth->>Client: 새 access_token + refresh_token 반환
+    Auth->>DB: 기존 토큰을 사용됨으로 표시
+    Note over Auth,DB: 10초 후 기존 토큰 완전 무효화
+```
+
+#### 토큰 회전 특징
+- **Graceful Rotation**: 10초 유예 기간으로 네트워크 지연 처리
+- **토큰 패밀리**: 부모-자식 관계로 토큰 체인 추적
+- **보안 감지**: 재사용된 토큰 감지 시 전체 패밀리 무효화
+- **자동 정리**: 만료된 토큰 자동 삭제
+- **중복 방지**: 동일 토큰의 동시 사용 방지
 
 ## 2. 시스템 아키텍처
 
@@ -95,14 +129,273 @@ MAX Platform (OAuth 서버)
 | maxmlops | `maxmlops` | localhost:3040 | localhost:8040 | `http://localhost:3040/oauth/callback` |
 
 ### OAuth 엔드포인트
+
+#### 핵심 OAuth 2.0 엔드포인트
 - **Authorization**: `http://localhost:8000/api/oauth/authorize`
+  - 지원 매개변수: `response_type`, `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method`, `prompt`
+  - PKCE 지원: `S256`, `plain` 방식
+  - Silent Auth: `prompt=none` 매개변수 지원
 - **Token Exchange**: `http://localhost:8000/api/oauth/token`
+  - 지원 grant types: `authorization_code`, `refresh_token`
+  - PKCE 검증: `code_verifier` 매개변수
+  - Graceful rotation: 새 refresh token 자동 발급
 - **User Info**: `http://localhost:8000/api/oauth/userinfo`
+  - JWT Bearer 토큰 인증 필요
+  - 표준 OpenID Connect claims 반환
 - **Token Revocation**: `http://localhost:8000/api/oauth/revoke`
+  - Access token 및 Refresh token 취소 지원
+  - 토큰 패밀리 전체 무효화 옵션
+
+#### 추가 엔드포인트
+- **Token Introspection**: `http://localhost:8000/api/oauth/introspect`
+  - 토큰 상태 및 메타데이터 조회
+  - 만료 시간, 스코프, 클라이언트 정보 제공
+- **Discovery Metadata**: `http://localhost:8000/.well-known/oauth-authorization-server`
+  - OAuth 2.0 서버 메타데이터
+  - 지원되는 grant types, scopes, endpoints 정보
+
+#### 간소화된 OAuth 엔드포인트 (oauth_simple.py)
+- **Simple Token**: `http://localhost:8000/api/oauth-simple/token`
+  - 빠른 토큰 교환 및 새로고침
+  - 기본 PKCE 및 회전 지원
+
+### 데이터베이스 스키마 (현재 구현)
+
+#### OAuth 핵심 테이블
+```sql
+-- OAuth 클라이언트 등록
+CREATE TABLE oauth_clients (
+    id UUID PRIMARY KEY,
+    client_id VARCHAR(255) UNIQUE NOT NULL,
+    client_name VARCHAR(255),
+    redirect_uris TEXT[], -- 허용된 리다이렉트 URI 목록
+    scopes TEXT[], -- 허용된 스코프 목록
+    is_trusted BOOLEAN DEFAULT FALSE, -- 자동 승인 여부
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 인증 코드 (5분 만료)
+CREATE TABLE authorization_codes (
+    id UUID PRIMARY KEY,
+    code VARCHAR(255) UNIQUE NOT NULL,
+    client_id VARCHAR(255) REFERENCES oauth_clients(client_id),
+    user_id UUID REFERENCES users(id),
+    redirect_uri VARCHAR(2048),
+    scope TEXT,
+    code_challenge VARCHAR(255), -- PKCE
+    code_challenge_method VARCHAR(10), -- S256 또는 plain
+    expires_at TIMESTAMP,
+    used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Access Token (30분 만료)
+CREATE TABLE oauth_access_tokens (
+    id UUID PRIMARY KEY,
+    token_hash VARCHAR(255) UNIQUE NOT NULL, -- SHA256 해시
+    jti VARCHAR(255) UNIQUE NOT NULL, -- JWT ID
+    client_id VARCHAR(255) REFERENCES oauth_clients(client_id),
+    user_id UUID REFERENCES users(id),
+    scope TEXT,
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Refresh Token (30일 만료, 회전 지원)
+CREATE TABLE oauth_refresh_tokens (
+    id UUID PRIMARY KEY,
+    token_hash VARCHAR(255) UNIQUE NOT NULL, -- SHA256 해시
+    client_id VARCHAR(255) REFERENCES oauth_clients(client_id),
+    user_id UUID REFERENCES users(id),
+    scope TEXT,
+    expires_at TIMESTAMP,
+    used_at TIMESTAMP, -- 사용된 시간
+    parent_id UUID REFERENCES oauth_refresh_tokens(id), -- 토큰 패밀리
+    grace_period_expires_at TIMESTAMP, -- 10초 유예 기간
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- OAuth 세션 관리
+CREATE TABLE oauth_sessions (
+    id UUID PRIMARY KEY,
+    client_id VARCHAR(255) REFERENCES oauth_clients(client_id),
+    user_id UUID REFERENCES users(id),
+    scope TEXT,
+    auto_approved BOOLEAN DEFAULT FALSE, -- 자동 승인 여부
+    last_used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 감사 로깅
+CREATE TABLE oauth_audit_logs (
+    id UUID PRIMARY KEY,
+    event_type VARCHAR(50), -- 'token_issued', 'token_refreshed', 'token_revoked'
+    client_id VARCHAR(255),
+    user_id UUID,
+    ip_address INET,
+    user_agent TEXT,
+    details JSONB, -- 추가 정보
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### 스코프 관리
+```sql
+-- 사용 가능한 스코프 정의
+CREATE TABLE oauth_scopes (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) UNIQUE NOT NULL, -- 'read:profile', 'manage:workflows'
+    description TEXT,
+    category VARCHAR(100), -- 'profile', 'workflow', 'admin'
+    is_sensitive BOOLEAN DEFAULT FALSE, -- 민감한 권한 여부
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 토큰 형식 및 구조
+
+#### JWT Access Token 구조
+```json
+{
+  "header": {
+    "alg": "RS256", // 또는 HS256
+    "typ": "JWT"
+  },
+  "payload": {
+    "sub": "user_uuid", // 사용자 ID
+    "iss": "http://localhost:8000", // 발급자
+    "aud": "maxflowstudio", // 대상 클라이언트
+    "exp": 1640995200, // 만료 시간 (30분)
+    "iat": 1640991600, // 발급 시간
+    "jti": "unique_jwt_id", // JWT 고유 ID
+    "scope": "read:profile read:groups manage:workflows",
+    "client_id": "maxflowstudio",
+    "nonce": "random_nonce" // 추가 보안
+  }
+}
+```
+
+#### Refresh Token 특징
+- **해시 저장**: 평문이 아닌 SHA256 해시로 데이터베이스 저장
+- **토큰 패밀리**: `parent_id`를 통한 토큰 체인 추적
+- **Graceful Period**: 10초 유예 기간으로 네트워크 지연 처리
+- **자동 무효화**: 재사용 감지 시 전체 패밀리 무효화
 
 ## 4. Frontend 구현
 
-### 4.1 환경변수 설정
+### 4.1 현재 구현된 Frontend 인증 시스템
+
+#### TokenManager (자동 토큰 새로고침)
+현재 구현에는 고급 토큰 관리 시스템이 포함되어 있습니다:
+
+```typescript
+// src/utils/tokenManager.ts (현재 구현 예시)
+class TokenManager {
+  private refreshPromise: Promise<string> | null = null;
+  private refreshQueue: Array<{resolve: Function, reject: Function}> = [];
+
+  // 자동 토큰 새로고침 (동시 요청 방지)
+  async refreshToken(): Promise<string> {
+    // 이미 새로고침 중이면 기존 Promise 반환
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.performRefresh();
+    
+    try {
+      const newToken = await this.refreshPromise;
+      this.processQueue(null, newToken);
+      return newToken;
+    } catch (error) {
+      this.processQueue(error, null);
+      throw error;
+    } finally {
+      this.refreshPromise = null;
+    }
+  }
+
+  private async performRefresh(): Promise<string> {
+    const refreshToken = localStorage.getItem('refreshToken');
+    
+    const response = await fetch('/api/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: 'maxflowstudio'
+      })
+    });
+
+    const data = await response.json();
+    
+    // 새 토큰 저장 (refresh token도 회전됨)
+    localStorage.setItem('accessToken', data.access_token);
+    localStorage.setItem('refreshToken', data.refresh_token);
+    
+    return data.access_token;
+  }
+}
+```
+
+#### AuthContext (SSO 토큰 감지)
+```typescript
+// src/contexts/AuthContext.tsx (현재 구현 특징)
+export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
+  // URL에서 SSO 토큰 감지
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const ssoToken = urlParams.get('sso_token');
+    const redirectTo = urlParams.get('redirect_to');
+    
+    if (ssoToken) {
+      // SSO 토큰 검증 및 저장
+      validateAndStoreToken(ssoToken);
+      
+      // 쿠키에도 저장 (크로스 도메인 공유)
+      document.cookie = `max_sso_token=${ssoToken}; path=/; domain=.localhost`;
+      
+      // URL 정리
+      window.history.replaceState({}, '', redirectTo || '/');
+    }
+  }, []);
+
+  // 쿠키에서 SSO 토큰 확인
+  useEffect(() => {
+    const cookieToken = getCookie('max_sso_token');
+    if (cookieToken && !localStorage.getItem('accessToken')) {
+      validateAndStoreToken(cookieToken);
+    }
+  }, []);
+};
+```
+
+#### 크로스 플랫폼 토큰 공유
+현재 구현은 여러 MAX Platform 애플리케이션 간의 토큰 공유를 지원합니다:
+
+```typescript
+// 쿠키 기반 토큰 공유
+function shareTokenAcrossPlatforms(token: string) {
+  // 각 MAX Platform 도메인에 토큰 설정
+  const domains = ['.localhost', '.maxplatform.com'];
+  
+  domains.forEach(domain => {
+    document.cookie = `max_sso_token=${token}; path=/; domain=${domain}; secure; samesite=none`;
+  });
+}
+
+// 다른 플랫폼으로 토큰과 함께 리다이렉트
+function redirectWithToken(targetUrl: string, token: string) {
+  const url = new URL(targetUrl);
+  url.searchParams.set('sso_token', token);
+  url.searchParams.set('redirect_to', window.location.pathname);
+  
+  window.location.href = url.toString();
+}
+```
+
+### 4.2 환경변수 설정
 
 ```env
 # .env (각 시스템별로 수정)
@@ -111,7 +404,7 @@ VITE_CLIENT_ID=maxflowstudio  # 시스템별로 변경
 VITE_REDIRECT_URI=http://localhost:3005/oauth/callback  # 시스템별로 변경
 ```
 
-### 4.2 OAuth 유틸리티 클래스
+### 4.3 OAuth 유틸리티 클래스
 
 ```typescript
 // src/utils/popupOAuth.ts
@@ -1529,7 +1822,189 @@ GET /api/oauth/authorize?
 
 `prompt=none` 미지원 시에도 5초 타임아웃으로 빠른 fallback을 제공하여 사용자 경험에 큰 영향을 주지 않습니다.
 
-## 6. Backend 구현
+## 6. Backend 구현 (현재 시스템)
+
+### 6.0 현재 백엔드 인증 아키텍처
+
+#### OAuth 서버 구현 (oauth.py)
+현재 MAX Platform은 완전한 OAuth 2.0 Authorization Server를 구현하고 있습니다:
+
+```python
+# backend/app/api/oauth.py (핵심 기능)
+class OAuthService:
+    def __init__(self):
+        self.jwt_algorithm = "RS256"  # 또는 HS256
+        self.access_token_expire = timedelta(minutes=30)
+        self.refresh_token_expire = timedelta(days=30)
+        self.grace_period = timedelta(seconds=10)  # Graceful rotation
+
+    async def create_authorization_code(self, user_id: str, client_id: str, 
+                                      redirect_uri: str, scope: str,
+                                      code_challenge: str, code_challenge_method: str) -> str:
+        """PKCE를 지원하는 authorization code 생성"""
+        code = generate_secure_random_string(32)
+        
+        await self.db.execute("""
+            INSERT INTO authorization_codes 
+            (code, client_id, user_id, redirect_uri, scope, 
+             code_challenge, code_challenge_method, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """, code, client_id, user_id, redirect_uri, scope,
+             code_challenge, code_challenge_method, 
+             datetime.utcnow() + timedelta(minutes=5))
+        
+        return code
+
+    async def exchange_code_for_tokens(self, code: str, client_id: str,
+                                     code_verifier: str) -> TokenPair:
+        """Authorization code를 토큰으로 교환 (PKCE 검증 포함)"""
+        # 1. Code 검증 및 PKCE 검증
+        auth_code = await self.verify_authorization_code(code, client_id)
+        if not self.verify_pkce(code_verifier, auth_code.code_challenge, 
+                               auth_code.code_challenge_method):
+            raise OAuth2Error("invalid_grant", "PKCE verification failed")
+        
+        # 2. 토큰 생성
+        access_token = await self.create_access_token(
+            user_id=auth_code.user_id,
+            client_id=client_id,
+            scope=auth_code.scope
+        )
+        
+        refresh_token = await self.create_refresh_token(
+            user_id=auth_code.user_id,
+            client_id=client_id,
+            scope=auth_code.scope
+        )
+        
+        # 3. 감사 로깅
+        await self.log_oauth_event("token_issued", client_id, auth_code.user_id)
+        
+        return TokenPair(access_token=access_token, refresh_token=refresh_token)
+
+    async def refresh_access_token(self, refresh_token: str, 
+                                 client_id: str) -> TokenPair:
+        """Graceful token rotation으로 새 토큰 발급"""
+        # 1. Refresh token 검증
+        token_record = await self.verify_refresh_token(refresh_token, client_id)
+        
+        # 2. 새 토큰 생성 (토큰 패밀리 연결)
+        new_access_token = await self.create_access_token(
+            user_id=token_record.user_id,
+            client_id=client_id,
+            scope=token_record.scope
+        )
+        
+        new_refresh_token = await self.create_refresh_token(
+            user_id=token_record.user_id,
+            client_id=client_id,
+            scope=token_record.scope,
+            parent_id=token_record.id  # 토큰 패밀리 연결
+        )
+        
+        # 3. 기존 토큰을 사용됨으로 표시 (10초 유예 기간)
+        await self.mark_token_as_used(token_record.id, grace_period=True)
+        
+        # 4. 감사 로깅
+        await self.log_oauth_event("token_refreshed", client_id, token_record.user_id)
+        
+        return TokenPair(access_token=new_access_token, refresh_token=new_refresh_token)
+```
+
+#### 토큰 보안 및 검증
+```python
+# backend/app/utils/auth.py (보안 기능)
+class TokenValidator:
+    async def validate_access_token(self, token: str) -> TokenPayload:
+        """JWT Access Token 검증"""
+        try:
+            # 1. JWT 서명 검증
+            payload = jwt.decode(token, self.public_key, algorithms=["RS256"])
+            
+            # 2. 데이터베이스에서 토큰 상태 확인
+            token_record = await self.db.fetch_one("""
+                SELECT * FROM oauth_access_tokens 
+                WHERE jti = $1 AND expires_at > NOW()
+            """, payload.get('jti'))
+            
+            if not token_record:
+                raise TokenExpiredError("Token not found or expired")
+            
+            # 3. 토큰 메타데이터 반환
+            return TokenPayload(**payload)
+            
+        except jwt.ExpiredSignatureError:
+            raise TokenExpiredError("Token has expired")
+        except jwt.InvalidTokenError:
+            raise InvalidTokenError("Invalid token format")
+
+    async def detect_token_reuse(self, refresh_token: str) -> bool:
+        """토큰 재사용 감지 및 보안 조치"""
+        token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+        
+        # 이미 사용된 토큰인지 확인
+        used_token = await self.db.fetch_one("""
+            SELECT * FROM oauth_refresh_tokens 
+            WHERE token_hash = $1 AND used_at IS NOT NULL
+        """, token_hash)
+        
+        if used_token:
+            # 토큰 재사용 감지 - 전체 패밀리 무효화
+            await self.revoke_token_family(used_token.id)
+            await self.log_security_event("token_reuse_detected", used_token.user_id)
+            return True
+        
+        return False
+```
+
+#### 현재 구현된 API 엔드포인트
+```python
+# backend/app/routers/oauth.py (API 라우터)
+@router.post("/authorize")
+async def authorize_endpoint(request: AuthorizeRequest):
+    """OAuth 2.0 Authorization 엔드포인트"""
+    # prompt=none 지원 (Silent Authentication)
+    if request.prompt == "none":
+        return await handle_silent_authorization(request)
+    
+    # 일반 인증 플로우
+    return await handle_interactive_authorization(request)
+
+@router.post("/token")
+async def token_endpoint(request: TokenRequest):
+    """OAuth 2.0 Token 엔드포인트"""
+    if request.grant_type == "authorization_code":
+        return await oauth_service.exchange_code_for_tokens(
+            request.code, request.client_id, request.code_verifier
+        )
+    elif request.grant_type == "refresh_token":
+        return await oauth_service.refresh_access_token(
+            request.refresh_token, request.client_id
+        )
+
+@router.get("/userinfo")
+async def userinfo_endpoint(current_user = Depends(get_current_user)):
+    """OAuth 2.0 UserInfo 엔드포인트 (OpenID Connect 호환)"""
+    return {
+        "sub": current_user.id,
+        "email": current_user.email,
+        "display_name": current_user.display_name,
+        "real_name": current_user.real_name,
+        "is_admin": current_user.is_superuser,
+        "groups": await get_user_groups(current_user.id)
+    }
+
+@router.post("/introspect")
+async def introspect_endpoint(request: IntrospectRequest):
+    """OAuth 2.0 Token Introspection 엔드포인트"""
+    token_info = await oauth_service.introspect_token(request.token)
+    return {
+        "active": token_info.is_active,
+        "scope": token_info.scope,
+        "client_id": token_info.client_id,
+        "exp": token_info.expires_at.timestamp()
+    }
+```
 
 ### 6.1 인증 미들웨어
 
@@ -1733,14 +2208,106 @@ async def delete_workflow(
     return {"message": "Workflow deleted"}
 ```
 
-## 7. 보안 고려사항
+## 7. 보안 고려사항 (현재 구현 기준)
 
-### 7.1 PKCE (Proof Key for Code Exchange)
+### 7.1 현재 구현된 보안 기능
+
+#### 토큰 회전 보안
+- **Graceful Rotation**: 10초 유예 기간으로 네트워크 지연 허용
+- **토큰 패밀리 추적**: 부모-자식 관계로 토큰 체인 관리
+- **재사용 감지**: 토큰 재사용 시 전체 패밀리 즉시 무효화
+- **자동 정리**: 만료된 토큰 자동 삭제 (cron job)
+
+#### JWT 보안 강화
+```python
+# 현재 구현된 JWT 보안 기능
+{
+  "jti": "unique_jwt_id",  # JWT 고유 식별자로 추적
+  "nonce": "random_value", # 추가 엔트로피
+  "iat": timestamp,        # 발급 시간 추적
+  "nbf": timestamp,        # 사용 시작 시간
+  "aud": "client_id"       # 특정 클라이언트 전용
+}
+```
+
+#### 감사 로깅 시스템
+현재 구현은 포괄적인 보안 이벤트 로깅을 제공합니다:
+- 토큰 발급/새로고침/취소 이벤트
+- IP 주소 및 User-Agent 추적
+- 보안 위협 감지 (토큰 재사용, 비정상 접근)
+- JSONB 형태의 상세 정보 저장
+
+#### 데이터베이스 보안
+- **토큰 해싱**: 평문 토큰이 아닌 SHA256 해시 저장
+- **인덱스 최적화**: 조회 성능과 보안 모두 고려
+- **자동 정리**: 만료된 데이터 자동 삭제
+- **무결성 제약**: 외래 키 제약으로 데이터 일관성 보장
+
+### 7.2 현재 구현된 스코프 시스템
+
+MAX Platform은 세밀한 권한 제어를 위한 스코프 시스템을 구현합니다:
+
+#### 표준 스코프
+```typescript
+// 현재 지원되는 스코프 목록
+const AVAILABLE_SCOPES = {
+  // 기본 프로필 접근
+  'read:profile': '사용자 기본 정보 읽기',
+  'write:profile': '사용자 정보 수정',
+  
+  // 그룹 및 조직 정보
+  'read:groups': '소속 그룹 정보 읽기',
+  'manage:groups': '그룹 관리 (관리자)',
+  
+  // 각 시스템별 관리 스코프
+  'manage:workflows': 'MAX FlowStudio 워크플로우 관리',
+  'manage:teams': 'MAX TeamSync 팀 관리',
+  'manage:queries': 'MAX QueryHub 쿼리 관리',
+  'manage:workspaces': 'MAX Workspace 관리',
+  'manage:models': 'MAX MLOps 모델 관리',
+  'manage:analytics': 'MAX APA 분석 관리',
+  'manage:llm': 'MAX LLM 모델 관리',
+  'manage:labs': 'MAX Lab 실험 관리',
+  
+  // 시스템 관리 스코프
+  'admin:users': '사용자 관리 (시스템 관리자)',
+  'admin:clients': 'OAuth 클라이언트 관리',
+  'admin:audit': '감사 로그 접근'
+};
+```
+
+#### 동적 스코프 검증
+```python
+# backend에서 스코프 기반 접근 제어
+async def require_scope(required_scope: str):
+    def decorator(func):
+        async def wrapper(current_user = Depends(get_current_user)):
+            user_scopes = current_user.get('scopes', [])
+            
+            if required_scope not in user_scopes:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient scope. Required: {required_scope}"
+                )
+            
+            return await func(current_user)
+        return wrapper
+    return decorator
+
+# 사용 예시
+@router.post("/workflows")
+@require_scope("manage:workflows")
+async def create_workflow(current_user):
+    # 워크플로우 생성 로직
+    pass
+```
+
+### 7.3 PKCE (Proof Key for Code Exchange)
 - **Code Verifier**: 랜덤 생성된 43-128자 문자열
 - **Code Challenge**: SHA256(Code Verifier) → Base64URL 인코딩
 - **보안 효과**: Authorization Code 가로채기 공격 방지
 
-### 7.2 Origin 검증
+### 7.4 Origin 검증
 ```typescript
 // 신뢰할 수 있는 Origin만 허용
 const trustedOrigins = [
@@ -2009,12 +2576,52 @@ VITE_REDIRECT_URI=https://flowstudio.maxplatform.com/oauth/callback
 - [FastAPI Security](https://fastapi.tiangolo.com/tutorial/security/)
 - [React Router Authentication](https://reactrouter.com/web/example/auth-workflow)
 
+## 11. 현재 구현 상태 요약
+
+### 구현 완료된 기능
+✅ **OAuth 2.0 Authorization Server** - 완전한 RFC 6749 구현  
+✅ **PKCE 지원** - SHA256 code challenge/verifier  
+✅ **토큰 회전** - Graceful rotation with 10초 유예 기간  
+✅ **JWT 보안** - RS256 서명, 고유 식별자, nonce  
+✅ **감사 로깅** - 포괄적인 보안 이벤트 추적  
+✅ **Silent Authentication** - `prompt=none` 지원  
+✅ **토큰 introspection** - RFC 7662 준수  
+✅ **스코프 시스템** - 세밀한 권한 제어  
+✅ **크로스 플랫폼 SSO** - 쿠키 기반 토큰 공유  
+✅ **자동 토큰 새로고침** - Frontend 대기열 관리  
+✅ **데이터베이스 최적화** - 인덱스 및 정리 자동화  
+
+### 주요 보안 기능
+🔒 **토큰 재사용 감지** - 전체 패밀리 무효화  
+🔒 **해시 기반 저장** - SHA256으로 토큰 보호  
+🔒 **IP/User-Agent 추적** - 보안 모니터링  
+🔒 **자동 만료 처리** - 시간 기반 정리  
+🔒 **Origin 검증** - PostMessage 보안  
+
+### 성능 최적화
+⚡ **동시 요청 처리** - 토큰 새로고침 대기열  
+⚡ **데이터베이스 인덱스** - 빠른 토큰 조회  
+⚡ **자동 정리** - 만료된 데이터 제거  
+⚡ **Connection Pooling** - 데이터베이스 성능 향상  
+
+### 개발자 경험
+🛠️ **종합적인 API** - 모든 OAuth 2.0 엔드포인트  
+🛠️ **상세한 오류 메시지** - 디버깅 지원  
+🛠️ **TypeScript 지원** - 타입 안전성  
+🛠️ **React 통합** - AuthContext 및 hooks  
+
 ---
 
 ## 지원 및 문의
 
 이 가이드에 대한 질문이나 개선 사항이 있으면 MAX Platform 개발팀에 문의하세요.
 
+### 추가 개발 시 참고 사항
+- 모든 OAuth 클라이언트는 MAX Platform에 사전 등록 필요
+- 새로운 스코프 추가 시 `oauth_scopes` 테이블 업데이트 필요  
+- 토큰 만료 시간은 보안 정책에 따라 조정 가능
+- 감사 로깅은 GDPR 및 SOC2 요구사항 충족
+
 **작성자**: MAX Platform 개발팀  
-**최종 수정**: 2025년 1월  
-**버전**: 1.0
+**최종 수정**: 2025년 7월 17일  
+**버전**: 2.0 (현재 구현 반영)

@@ -14,7 +14,7 @@ from sqlalchemy import text, and_, or_, func
 from pydantic import BaseModel, Field
 
 from ..database import get_db
-from ..utils.auth import get_current_user
+from ..utils.auth import get_current_user, require_service_auth
 from ..models import User
 import logging
 
@@ -108,6 +108,18 @@ def check_admin_permission(current_user: User):
     """Check if user has admin permission"""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Admin permission required")
+
+
+def check_service_permission(service_info: dict, required_scopes: list = None):
+    """Check if service has required permissions"""
+    if required_scopes:
+        service_scopes = service_info.get("scopes", [])
+        missing_scopes = [scope for scope in required_scopes if scope not in service_scopes]
+        if missing_scopes:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Missing required scopes: {', '.join(missing_scopes)}"
+            )
 
 
 def generate_client_secret() -> str:
@@ -843,3 +855,188 @@ def get_oauth_statistics(
     except Exception as e:
         logger.error(f"Error getting OAuth statistics: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get OAuth statistics")
+
+
+# Service-only endpoints (for service-to-service communication)
+@router.get("/service/clients", response_model=List[OAuthClientResponse])
+def list_oauth_clients_service(
+    search: Optional[str] = Query(None, description="Search by client ID or name"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    service_info: dict = require_service_auth(["admin:oauth"]),
+    db: Session = Depends(get_db)
+):
+    """List OAuth clients using service authentication"""
+    check_service_permission(service_info, ["admin:oauth"])
+    
+    try:
+        # Build query (same logic as user endpoint)
+        query = "SELECT * FROM oauth_clients WHERE 1=1"
+        params = {}
+        
+        if search:
+            query += " AND (client_id ILIKE :search OR client_name ILIKE :search)"
+            params["search"] = f"%{search}%"
+        
+        if is_active is not None:
+            query += " AND is_active = :is_active"
+            params["is_active"] = is_active
+        
+        query += " ORDER BY client_id LIMIT :limit OFFSET :skip"
+        params["limit"] = limit
+        params["skip"] = skip
+        
+        result = db.execute(text(query), params)
+        
+        clients = []
+        for row in result:
+            clients.append(OAuthClientResponse(
+                id=str(row.id),
+                client_id=row.client_id,
+                client_name=row.client_name,
+                description=row.description,
+                redirect_uris=row.redirect_uris,
+                allowed_scopes=row.allowed_scopes,
+                is_confidential=row.is_confidential,
+                is_active=row.is_active,
+                logo_url=row.logo_url,
+                homepage_url=row.homepage_url,
+                created_at=row.created_at,
+                updated_at=row.updated_at
+            ))
+        
+        logger.info(f"Service {service_info['client_id']} accessed OAuth clients list")
+        return clients
+        
+    except Exception as e:
+        logger.error(f"Error listing OAuth clients for service: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list OAuth clients")
+
+
+@router.get("/service/statistics")
+def get_oauth_statistics_service(
+    service_info: dict = require_service_auth(["admin:oauth"]),
+    db: Session = Depends(get_db)
+):
+    """Get OAuth statistics using service authentication"""
+    check_service_permission(service_info, ["admin:oauth"])
+    
+    try:
+        # Same statistics logic as user endpoint
+        total_clients = db.execute(
+            text("SELECT COUNT(*) FROM oauth_clients")
+        ).scalar()
+        
+        active_clients = db.execute(
+            text("SELECT COUNT(*) FROM oauth_clients WHERE is_active = true")
+        ).scalar()
+        
+        total_sessions = db.execute(
+            text("SELECT COUNT(*) FROM oauth_sessions")
+        ).scalar()
+        
+        active_tokens = db.execute(
+            text("""
+                SELECT COUNT(*) FROM oauth_access_tokens 
+                WHERE expires_at > NOW() AND revoked_at IS NULL
+            """)
+        ).scalar()
+        
+        recent_authorizations = db.execute(
+            text("""
+                SELECT COUNT(*) FROM oauth_audit_logs 
+                WHERE action = 'authorize' 
+                AND success = true 
+                AND created_at > NOW() - INTERVAL '24 hours'
+            """)
+        ).scalar()
+        
+        # Service client statistics
+        service_clients = db.execute(
+            text("""
+                SELECT COUNT(*) FROM oauth_clients 
+                WHERE array_length(redirect_uris, 1) IS NULL 
+                OR array_length(redirect_uris, 1) = 0
+            """)
+        ).scalar()
+        
+        service_tokens = db.execute(
+            text("""
+                SELECT COUNT(*) FROM oauth_access_tokens 
+                WHERE user_id IS NULL 
+                AND expires_at > NOW() 
+                AND revoked_at IS NULL
+            """)
+        ).scalar()
+        
+        statistics = {
+            "total_clients": total_clients,
+            "active_clients": active_clients,
+            "service_clients": service_clients,
+            "total_sessions": total_sessions,
+            "active_tokens": active_tokens,
+            "active_service_tokens": service_tokens,
+            "recent_authorizations_24h": recent_authorizations,
+            "accessed_by_service": service_info["client_id"],
+            "service_scopes": service_info["scopes"]
+        }
+        
+        logger.info(f"Service {service_info['client_id']} accessed OAuth statistics")
+        return statistics
+        
+    except Exception as e:
+        logger.error(f"Error getting OAuth statistics for service: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get OAuth statistics")
+
+
+@router.post("/service/clients/{client_id}/regenerate-secret", response_model=ClientSecretResponse)
+def regenerate_client_secret_service(
+    client_id: str,
+    service_info: dict = require_service_auth(["admin:oauth"]),
+    db: Session = Depends(get_db)
+):
+    """Regenerate client secret using service authentication"""
+    check_service_permission(service_info, ["admin:oauth"])
+    
+    try:
+        # Check if client exists and is confidential
+        result = db.execute(
+            text("SELECT is_confidential FROM oauth_clients WHERE client_id = :client_id"),
+            {"client_id": client_id}
+        )
+        row = result.first()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="OAuth client not found")
+        
+        if not row.is_confidential:
+            raise HTTPException(status_code=400, detail="Cannot regenerate secret for public clients")
+        
+        # Generate new secret
+        new_secret = generate_client_secret()
+        
+        # Update client secret
+        db.execute(
+            text("""
+                UPDATE oauth_clients 
+                SET client_secret = :secret, updated_at = NOW() 
+                WHERE client_id = :client_id
+            """),
+            {"client_id": client_id, "secret": new_secret}
+        )
+        db.commit()
+        
+        logger.info(f"Service {service_info['client_id']} regenerated secret for client {client_id}")
+        
+        return ClientSecretResponse(
+            client_secret=new_secret,
+            message=f"Client secret regenerated by service {service_info['client_id']}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating client secret for service: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to regenerate client secret")

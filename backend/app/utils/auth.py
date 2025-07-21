@@ -403,4 +403,173 @@ def get_current_user_silent(
     except Exception as e:
         # 기타 예외는 디버그 레벨로 로그
         logger.debug(f"Silent token validation failed: {e}")
-        return None 
+        return None
+
+
+def verify_service_token(token: str, required_scopes: Optional[list] = None) -> Dict[str, Any]:
+    """
+    서비스 토큰 검증 (Client Credentials Grant용)
+    
+    Args:
+        token: JWT 서비스 토큰
+        required_scopes: 필요한 스코프 목록
+    
+    Returns:
+        토큰 정보 딕셔너리 또는 None
+    """
+    try:
+        # JWT 디코딩 및 검증
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        
+        # 서비스 토큰 확인
+        token_type = payload.get("token_type")
+        if token_type != "service":
+            logger.warning(f"Invalid token type for service verification: {token_type}")
+            return None
+        
+        # 토큰 만료 확인
+        exp = payload.get("exp")
+        if exp and datetime.utcnow().timestamp() > exp:
+            logger.debug("Service token has expired")
+            return None
+        
+        # 클라이언트 정보 추출
+        client_id = payload.get("client_id")
+        if not client_id:
+            logger.warning("No client_id in service token")
+            return None
+        
+        # 스코프 검증
+        token_scopes = payload.get("scope", "").split()
+        if required_scopes:
+            missing_scopes = [scope for scope in required_scopes if scope not in token_scopes]
+            if missing_scopes:
+                logger.warning(f"Missing required scopes for service token: {missing_scopes}")
+                return None
+        
+        service_info = {
+            "client_id": client_id,
+            "scopes": token_scopes,
+            "token_type": "service",
+            "sub": payload.get("sub"),
+            "iss": payload.get("iss"),
+            "exp": exp,
+            "jti": payload.get("jti")
+        }
+        
+        # 성공적인 서비스 토큰 검증 로그
+        log_auth_event(
+            event_type="service_token_verification",
+            user_id=f"service:{client_id}",
+            success=True,
+            additional_data={
+                "client_id": client_id,
+                "scopes": token_scopes,
+                "jti": payload.get("jti")
+            }
+        )
+        
+        return service_info
+        
+    except JWTError as e:
+        logger.warning(f"Service token verification failed: {e}")
+        log_auth_event(
+            event_type="service_token_verification",
+            success=False,
+            error=f"JWT decode error: {str(e)}"
+        )
+        return None
+    except Exception as e:
+        logger.warning(f"Service token verification error: {e}")
+        log_auth_event(
+            event_type="service_token_verification",
+            success=False,
+            error=f"Verification error: {str(e)}"
+        )
+        return None
+
+
+def get_current_service(
+    request: Request,
+    required_scopes: Optional[list] = None,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    현재 서비스 정보 조회 (서비스 토큰 기반)
+    
+    Args:
+        request: FastAPI Request 객체
+        required_scopes: 필요한 스코프 목록
+        db: 데이터베이스 세션
+    
+    Returns:
+        서비스 정보 딕셔너리
+    
+    Raises:
+        HTTPException: 인증 실패 시
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate service credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        # 토큰 추출
+        token = extract_token_from_request(request)
+        
+        if not token or token.strip() == "":
+            logger.warning("No service token provided")
+            raise credentials_exception
+        
+        # Bearer 접두사 제거
+        if token.startswith("Bearer "):
+            token = token[7:]
+        elif token.startswith("bearer "):
+            token = token[7:]
+        
+        # 서비스 토큰 검증
+        service_info = verify_service_token(token, required_scopes)
+        if not service_info:
+            logger.warning("Service token verification failed")
+            raise credentials_exception
+        
+        # 클라이언트가 데이터베이스에 존재하고 활성화되어 있는지 확인
+        from sqlalchemy import text
+        result = db.execute(
+            text("SELECT is_active, is_confidential FROM oauth_clients WHERE client_id = :client_id"),
+            {"client_id": service_info["client_id"]}
+        )
+        client = result.first()
+        
+        if not client or not client.is_active or not client.is_confidential:
+            logger.warning(f"Invalid or inactive service client: {service_info['client_id']}")
+            raise credentials_exception
+        
+        logger.info(f"Successfully authenticated service: {service_info['client_id']}")
+        return service_info
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Service authentication failed: {e}")
+        raise credentials_exception
+
+
+def require_service_auth(required_scopes: Optional[list] = None):
+    """
+    서비스 인증 데코레이터
+    
+    Args:
+        required_scopes: 필요한 스코프 목록
+    
+    Returns:
+        서비스 정보를 반환하는 Depends 함수
+    """
+    def _get_service(
+        request: Request,
+        db: Session = Depends(get_db)
+    ) -> Dict[str, Any]:
+        return get_current_service(request, required_scopes, db)
+    
+    return Depends(_get_service)

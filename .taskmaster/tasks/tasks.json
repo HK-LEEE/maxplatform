@@ -1,0 +1,577 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Create Standard OAuth User API Endpoints",
+        "description": "Implement the new OAuth-compliant user API endpoints that accept user tokens instead of service tokens",
+        "details": "Create FastAPI endpoints in backend/app/routers/users.py: GET /api/users/search, GET /api/users/email/{email}, GET /api/users/me, GET /api/users/{user_id}. Each endpoint must validate user OAuth tokens and implement proper permission checks. Use the existing OAuth validation middleware and ensure all responses follow the documented JSON schema.",
+        "testStrategy": "Unit tests for each endpoint with different user permission levels, integration tests with real OAuth tokens, test 200/403/404 status codes, verify proper error handling and permission enforcement",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create router file structure and FastAPI setup",
+            "description": "Set up the FastAPI router file structure for user endpoints in backend/app/routers/users.py",
+            "dependencies": [],
+            "details": "Create the users.py router file with proper FastAPI imports, router initialization, and basic file structure. Include necessary imports for OAuth validation, error handling, and response models. Set up the router prefix and tags for API documentation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/users/search endpoint with OAuth validation",
+            "description": "Create the user search endpoint that validates OAuth tokens and implements proper permission checks",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement GET /api/users/search endpoint that accepts query parameters for user search. Add OAuth token validation using existing middleware, implement permission checks to ensure users can only search within their authorized scope, and return properly formatted JSON responses with user data.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement GET /api/users/email/{email} and GET /api/users/me endpoints",
+            "description": "Create user lookup endpoints for email-based search and current user information",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement GET /api/users/email/{email} endpoint for email-based user lookup with proper validation and permission checks. Implement GET /api/users/me endpoint to return current authenticated user's information. Both endpoints must validate OAuth tokens and implement appropriate access controls.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement GET /api/users/{user_id} endpoint and add comprehensive error handling",
+            "description": "Create user ID lookup endpoint and implement comprehensive error handling across all user endpoints",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement GET /api/users/{user_id} endpoint with OAuth validation and permission checks. Add comprehensive error handling across all user endpoints including 200/403/404 status codes, proper error response formatting, validation error handling, and OAuth token error handling. Ensure all endpoints follow consistent error response patterns.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Create Standard OAuth Group API Endpoints",
+        "description": "Implement the new OAuth-compliant group API endpoints that accept user tokens instead of service tokens",
+        "details": "Create FastAPI endpoints in backend/app/routers/groups.py: GET /api/groups/search, GET /api/groups/name/{group_name}, GET /api/groups/my, GET /api/groups/{group_id}. Implement group membership validation, admin access controls, and proper JSON responses. Use the same OAuth validation pattern as user endpoints.",
+        "testStrategy": "Unit tests for group access permissions, test group member vs non-member access, verify admin privileges, test search functionality with various filters, integration tests with group hierarchy",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create groups router file and basic FastAPI setup",
+            "description": "Create backend/app/routers/groups.py with FastAPI router setup, imports, and basic structure for group endpoints",
+            "dependencies": [],
+            "details": "Set up the FastAPI router with proper imports including FastAPI dependencies, OAuth validation middleware, database models, and response schemas. Create the router instance and basic endpoint structure ready for implementation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/groups/search with filtering and permissions",
+            "description": "Create the groups search endpoint with query parameter filtering and proper OAuth token validation",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement search functionality with filters for group name, description, and membership. Add OAuth token validation using existing middleware patterns. Include proper permission checks to ensure users can only see groups they have access to view.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement GET /api/groups/name/{group_name} with group validation",
+            "description": "Create endpoint to retrieve group by name with existence validation and access control",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement group name lookup with validation that the group exists and the requesting user has permission to view it. Add proper error handling for non-existent groups and unauthorized access attempts.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement GET /api/groups/my for user's groups",
+            "description": "Create endpoint to return all groups that the authenticated user is a member of",
+            "dependencies": [
+              1
+            ],
+            "details": "Retrieve and return all groups where the current user has membership. Include group details and the user's role/permissions within each group. Ensure proper OAuth token validation and user identification.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement GET /api/groups/{group_id} with membership and admin access controls",
+            "description": "Create endpoint for group details by ID with comprehensive permission validation",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Implement group detail retrieval by UUID with complex access controls. Validate group membership for basic access and admin privileges for sensitive information. Include proper error handling for permission denied and not found scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Refactor AuthServerClient Class",
+        "description": "Update the existing AuthServerClient to use user tokens instead of service tokens for all API calls",
+        "details": "Modify backend/app/services/auth_server_client.py to remove all get_service_token() calls and replace with user_token parameters. Update method signatures for get_user_uuid_by_email(), get_group_uuid_by_name() and add new methods search_users_by_email(), get_my_group_info(). Implement proper error handling for 403/404 responses and add PermissionError exceptions.",
+        "testStrategy": "Unit tests for each method with valid/invalid tokens, mock HTTP responses for different status codes, verify proper exception handling, test token forwarding functionality",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Analyze existing AuthServerClient service token usage",
+            "description": "Audit all methods in AuthServerClient to identify where get_service_token() is called and document current token usage patterns",
+            "dependencies": [],
+            "details": "Review backend/app/services/auth_server_client.py to map out all get_service_token() calls, document current method signatures, and identify which methods need user_token parameters. Create a comprehensive list of methods requiring updates.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Update method signatures to accept user_token parameters",
+            "description": "Modify existing method signatures in AuthServerClient to accept user_token as a required parameter",
+            "dependencies": [
+              1
+            ],
+            "details": "Update get_user_uuid_by_email() and get_group_uuid_by_name() method signatures to include user_token parameter. Ensure backward compatibility considerations are addressed and parameter validation is in place.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement new methods search_users_by_email() and get_my_group_info()",
+            "description": "Add the two new required methods to AuthServerClient with proper user token authentication",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement search_users_by_email(user_token, email_pattern) and get_my_group_info(user_token) methods. Both should use Bearer token authentication and return appropriate data structures. Include proper input validation and API endpoint mapping.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add comprehensive error handling with custom exceptions",
+            "description": "Implement proper error handling for 403/404 responses and create custom PermissionError exceptions",
+            "dependencies": [
+              3
+            ],
+            "details": "Add try-catch blocks for HTTP 403/404 responses in all methods. Create custom PermissionError exceptions for authorization failures. Implement proper error propagation and meaningful error messages for different failure scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Remove get_service_token() calls and update method implementations",
+            "description": "Replace all get_service_token() usage with user_token parameters in existing method implementations",
+            "dependencies": [
+              4
+            ],
+            "details": "Remove all get_service_token() calls from existing methods and update HTTP request headers to use Bearer token authentication with user_token. Update all API calls to use the new authentication pattern and verify all methods work with user tokens.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Update Token Extraction Middleware",
+        "description": "Create or update middleware to extract user OAuth tokens from requests and make them available to downstream services",
+        "details": "Update backend/app/utils/auth.py to add a function for extracting Bearer tokens from Authorization headers. Ensure the token extraction works with the existing get_current_user dependency and can be passed to AuthServerClient methods. Handle edge cases like missing Authorization header or malformed tokens.",
+        "testStrategy": "Unit tests for token extraction with various header formats, test missing/malformed tokens, verify integration with existing auth dependencies, test token passing to downstream services",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create token extraction function in auth.py for Bearer token parsing",
+            "description": "Implement a function in backend/app/utils/auth.py to extract Bearer tokens from Authorization headers with proper validation",
+            "dependencies": [],
+            "details": "Create extract_bearer_token() function that parses 'Authorization: Bearer <token>' headers, validates format, and returns the token string. Handle cases where header is missing, malformed, or doesn't follow Bearer format. Return None for invalid cases and raise appropriate exceptions for malformed tokens.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Integrate token extraction with existing get_current_user dependency",
+            "description": "Modify the get_current_user FastAPI dependency to use the new token extraction function",
+            "dependencies": [
+              1
+            ],
+            "details": "Update the get_current_user dependency in backend/app/utils/auth.py to call the extract_bearer_token() function and use the extracted token for user validation. Ensure backward compatibility with existing endpoints while enabling the new OAuth token flow for downstream services.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Add comprehensive error handling for missing/malformed tokens and edge cases",
+            "description": "Implement robust error handling for all token extraction scenarios and edge cases",
+            "dependencies": [
+              2
+            ],
+            "details": "Add proper HTTP exception handling for missing Authorization headers (401 Unauthorized), malformed Bearer tokens (400 Bad Request), expired tokens, and other edge cases. Ensure error responses are consistent with OAuth standards and provide clear error messages for debugging. Test with various invalid token formats and missing headers.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Migrate Experiment Creation Endpoints",
+        "description": "Update experiment creation and management endpoints to use user tokens instead of service tokens",
+        "details": "Update all experiment-related endpoints to extract user tokens from requests and pass them to AuthServerClient calls. Modify the create_experiment, update_experiment, and delete_experiment endpoints to use the new OAuth-compliant methods. Add proper error handling for permission errors.",
+        "testStrategy": "Integration tests for experiment CRUD operations with different user permissions, test experiment access controls, verify proper error responses for unauthorized access, test with various user roles",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Identify all experiment-related endpoints that use service tokens",
+            "description": "Audit the codebase to find all experiment-related API endpoints and identify which ones currently use service tokens for authentication",
+            "dependencies": [],
+            "details": "Search through backend/app/routers/ and related files to find all experiment endpoints (create, read, update, delete, list). Document current authentication patterns and identify where service tokens are being used. Create a comprehensive list of endpoints that need migration.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Update create_experiment endpoint to use user token extraction and new AuthServerClient methods",
+            "description": "Modify the experiment creation endpoint to extract user tokens from requests and use AuthServerClient OAuth-compliant methods",
+            "dependencies": [
+              1
+            ],
+            "details": "Update the create_experiment endpoint to use extract_user_token() helper function and replace service token calls with user token forwarding to AuthServerClient. Implement proper permission validation and ensure the endpoint follows OAuth standard patterns established in previous tasks.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Update update_experiment and delete_experiment endpoints with user token flow",
+            "description": "Migrate the experiment update and delete endpoints to use user tokens instead of service tokens",
+            "dependencies": [
+              2
+            ],
+            "details": "Apply the same user token extraction pattern to update_experiment and delete_experiment endpoints. Replace any AuthServerClient service token calls with user token forwarding. Ensure proper ownership and permission validation for experiment modifications and deletions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add proper permission error handling and validation across all experiment endpoints",
+            "description": "Implement comprehensive error handling and permission validation for all migrated experiment endpoints",
+            "dependencies": [
+              3
+            ],
+            "details": "Add proper HTTP status code responses (403 for forbidden, 404 for not found), implement consistent error message formatting, add validation for experiment ownership and user permissions. Ensure all endpoints return appropriate error responses when users lack sufficient permissions.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Migrate Group Management Endpoints",
+        "description": "Update group management endpoints to use user tokens and new group API methods",
+        "details": "Update group creation, modification, and member management endpoints to use user tokens. Replace any service token usage with user token forwarding. Implement proper group permission validation using the new OAuth-compliant group endpoints.",
+        "testStrategy": "Test group creation/modification with different user roles, verify group member management permissions, test group visibility controls, integration tests with group hierarchy operations",
+        "priority": "medium",
+        "dependencies": [
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Identify and catalog all group management endpoints using service tokens",
+            "description": "Audit all existing group-related endpoints to identify service token usage patterns and document current group management functionality",
+            "dependencies": [],
+            "details": "Search through backend codebase for all group-related endpoints (create, update, delete, member management, hierarchy operations). Document which endpoints currently use service tokens vs user tokens. Catalog the specific AuthServerClient methods being called and the permission logic currently implemented. Create a comprehensive inventory of group operations that need migration.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Update group creation and modification endpoints to use user tokens",
+            "description": "Migrate group creation, update, and deletion endpoints from service tokens to user token authentication",
+            "dependencies": [
+              1
+            ],
+            "details": "Update group creation endpoints to extract user tokens from requests and pass them to AuthServerClient calls. Modify group update and deletion endpoints to use user token forwarding. Replace any get_service_token() calls with user_token parameters. Implement proper error handling for permission errors and add validation for group ownership/admin permissions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Migrate group member management endpoints with proper permission validation",
+            "description": "Update group member add/remove/modify endpoints to use user tokens with comprehensive permission validation",
+            "dependencies": [
+              2
+            ],
+            "details": "Migrate endpoints for adding/removing group members, updating member roles, and managing member permissions. Implement proper validation to ensure only authorized users can modify group membership. Add role-based permission checks (admin, member, owner) and validate user has sufficient privileges for member management operations. Handle edge cases like self-removal and ownership transfer.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement group hierarchy operations with new OAuth-compliant methods",
+            "description": "Update group hierarchy management endpoints to use OAuth-compliant user token authentication and proper permission inheritance",
+            "dependencies": [
+              3
+            ],
+            "details": "Migrate endpoints for creating/managing group hierarchies, parent-child group relationships, and permission inheritance. Update group tree operations to use user tokens and implement proper permission cascading. Ensure group visibility controls work correctly with the new authentication model. Add validation for circular dependencies in group hierarchies and implement proper error handling for complex group relationship operations.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Remove Service Token Dependencies",
+        "description": "Completely remove all service token generation, storage, and usage from the codebase",
+        "details": "Remove service_token.py utility functions, delete any service token configuration from config.py, remove SERVICE_TOKEN environment variables and related code. Update database schema if service tokens were stored. Ensure no internal APIs are still using service tokens.",
+        "testStrategy": "Code review to verify complete removal of service token code, test that all APIs work without service tokens, verify no remaining service token references in configuration or environment files",
+        "priority": "high",
+        "dependencies": [
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Audit codebase for service token references and dependencies",
+            "description": "Comprehensively scan the entire codebase to identify all files, functions, imports, and configuration that reference or depend on service tokens",
+            "dependencies": [],
+            "details": "Use grep/search tools to find all references to 'service_token', 'SERVICE_TOKEN', and related patterns across Python files, configuration files, environment files, and documentation. Create a complete inventory of files that need modification including backend/app/utils/service_token.py, backend/app/config.py, any router files using service tokens, and environment variable references.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Remove service_token.py utility functions and related imports",
+            "description": "Delete the service_token.py utility file and remove all imports of service token functions from other modules",
+            "dependencies": [
+              1
+            ],
+            "details": "Delete backend/app/utils/service_token.py completely. Remove all 'from .utils.service_token import' statements and direct service token function calls from router files and other modules. Update any code that was calling service token generation or validation functions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Clean up config.py and environment variables related to service tokens",
+            "description": "Remove service token configuration settings from config.py and environment variable definitions",
+            "dependencies": [
+              1
+            ],
+            "details": "Remove SERVICE_TOKEN_SECRET, SERVICE_TOKEN_EXPIRY, and any other service token related configuration from backend/app/config.py. Remove SERVICE_TOKEN environment variables from .env files and documentation. Update the Settings class to remove service token fields.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Update database schema and verify complete removal through testing",
+            "description": "Check if service tokens were stored in database and update schema if needed, then run comprehensive tests to verify complete removal",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Examine database schema files for any service token storage tables or columns. If found, create migration to remove them. Run all existing tests to ensure no service token dependencies remain. Test all API endpoints to verify they work without service tokens. Review code for any missed references.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Enhanced Error Handling",
+        "description": "Add comprehensive error handling for OAuth permission errors and API failures",
+        "details": "Implement standardized error responses for 403 (permission denied), 404 (resource not found), and 500 (server error) cases. Add proper logging for authorization failures and audit trail. Create custom exception classes for different error types and ensure consistent error message formatting across all endpoints.",
+        "testStrategy": "Test error handling for each endpoint with invalid tokens, test permission denied scenarios, verify proper HTTP status codes, test error message consistency, verify audit logging functionality",
+        "priority": "medium",
+        "dependencies": [
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create standardized error response classes and custom exception types",
+            "description": "Define custom exception classes for OAuth and API errors with standardized response formats",
+            "dependencies": [],
+            "details": "Create custom exception classes for PermissionError (403), ResourceNotFoundError (404), and OAuth-specific errors. Implement a base APIException class with standardized error response format including error code, message, details, and timestamp. Add exception classes for token validation failures, authorization errors, and service communication failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement consistent error handling across all endpoints with proper HTTP status codes",
+            "description": "Apply standardized error handling patterns to all API endpoints with appropriate HTTP status codes",
+            "dependencies": [
+              1
+            ],
+            "details": "Update all existing endpoints to use the custom exception classes. Implement FastAPI exception handlers for the custom exceptions to ensure consistent error response format. Add proper HTTP status code mapping (403 for permission denied, 404 for not found, 401 for unauthorized, 500 for server errors). Ensure all endpoints handle token validation errors consistently.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Add comprehensive logging and audit trail functionality for authorization failures",
+            "description": "Implement detailed logging system for tracking authorization failures and security events",
+            "dependencies": [
+              2
+            ],
+            "details": "Add structured logging for all authorization failures including user ID, requested resource, error type, and timestamp. Implement audit trail functionality that logs permission denied events, failed token validations, and unauthorized access attempts. Create log formatters for security events and ensure sensitive information is not logged. Add correlation IDs for tracking request flows.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Update API Documentation and Testing",
+        "description": "Update API documentation to reflect OAuth standard compliance and create comprehensive test suite",
+        "details": "Update OpenAPI/Swagger documentation to show new endpoints and OAuth token requirements. Create test_oauth_standard_apis.py script as specified in the PRD. Add endpoint documentation with example requests/responses and permission requirements. Update any existing API documentation to reflect the migration.",
+        "testStrategy": "Verify documentation accuracy against implemented endpoints, test the provided test script against running API, validate example requests work correctly, ensure all permission scenarios are documented",
+        "priority": "medium",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update OpenAPI/Swagger documentation with new endpoints and OAuth requirements",
+            "description": "Update the OpenAPI/Swagger specification to document all new OAuth-compliant endpoints, token requirements, and authentication patterns",
+            "dependencies": [],
+            "details": "Update the OpenAPI specification file to include all new group API endpoints (GET /api/groups/search, GET /api/groups/name/{group_name}, GET /api/groups/my, GET /api/groups/{group_id}) with proper request/response schemas. Document OAuth Bearer token requirements in security definitions. Add examples for Authorization headers and token formats. Update existing endpoint documentation to reflect OAuth migration changes.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Create comprehensive test_oauth_standard_apis.py script as specified in PRD",
+            "description": "Develop a complete test script that validates all OAuth standard API endpoints with various permission scenarios",
+            "dependencies": [
+              1
+            ],
+            "details": "Create test_oauth_standard_apis.py script that tests all new OAuth endpoints with different user tokens and permission levels. Include tests for group member vs non-member access, admin privileges, search functionality, and error handling scenarios (403/404 responses). Test token extraction middleware and user authentication flow. Provide clear test output and validation messages.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Add detailed endpoint documentation with examples and permission scenarios",
+            "description": "Create comprehensive documentation showing request/response examples and detailed permission requirements for each endpoint",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Add detailed documentation for each API endpoint showing example requests with proper Authorization headers, sample JSON responses, and clear explanations of permission requirements. Document group membership validation logic, admin access controls, and error response formats. Include curl examples and permission matrix showing which user types can access which endpoints.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Performance Optimization and Caching",
+        "description": "Implement caching strategies and performance optimizations for the new OAuth-compliant APIs",
+        "details": "Implement token validation caching to reduce redundant OAuth server calls, add user/group information caching with appropriate TTL, implement retry logic for external API calls with exponential backoff, add timeout configurations for all HTTP requests, optimize database queries for user/group lookups.",
+        "testStrategy": "Performance tests to measure API response times, test caching behavior and cache invalidation, verify retry logic under network failures, load testing with concurrent requests, verify timeout handling",
+        "priority": "low",
+        "dependencies": [
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement token validation caching with TTL strategies",
+            "description": "Create a caching layer for OAuth token validation results to reduce redundant calls to the OAuth server with configurable TTL settings",
+            "dependencies": [],
+            "details": "Implement Redis or in-memory caching for token validation responses. Configure appropriate TTL values (e.g., 5-15 minutes) based on token expiry times. Add cache invalidation logic for revoked tokens. Include cache hit/miss metrics for monitoring.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Add user/group information caching layer",
+            "description": "Implement caching for user and group data retrieved from external services to minimize API calls",
+            "dependencies": [
+              1
+            ],
+            "details": "Cache user profile data, group memberships, and group hierarchy information. Implement cache warming strategies for frequently accessed data. Add cache invalidation triggers for user/group updates. Configure different TTL values for different data types.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement retry logic with exponential backoff for external API calls",
+            "description": "Add robust retry mechanisms for all external API calls with exponential backoff and jitter",
+            "dependencies": [],
+            "details": "Implement retry decorators for HTTP client methods. Configure maximum retry attempts (3-5), initial delay (100ms), and maximum delay (30s). Add jitter to prevent thundering herd problems. Include circuit breaker pattern for prolonged failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add timeout configurations and connection pooling",
+            "description": "Configure appropriate timeouts for all HTTP requests and implement connection pooling for better resource management",
+            "dependencies": [
+              3
+            ],
+            "details": "Set connection timeouts (5s), read timeouts (30s), and total request timeouts (60s). Implement HTTP connection pooling with appropriate pool sizes. Add keep-alive settings and connection reuse strategies. Configure per-endpoint timeout overrides.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Optimize database queries and add performance monitoring",
+            "description": "Optimize slow database queries and implement comprehensive performance monitoring across the system",
+            "dependencies": [
+              1,
+              2,
+              4
+            ],
+            "details": "Add database query performance logging, implement query optimization for user/group lookups, add database connection pooling, create performance dashboards for API response times, cache hit rates, and error rates. Include alerting for performance degradation.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-07-18T05:06:13.037Z",
+      "updated": "2025-07-18T05:06:13.037Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

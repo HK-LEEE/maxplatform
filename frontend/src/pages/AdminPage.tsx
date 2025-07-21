@@ -15,6 +15,7 @@ import { LLMModelManagement, LLMModelCreate, ModelType, OwnerType } from '../typ
 import OAuthClientManager from '../components/admin/OAuthClientManager';
 import OAuthSessionManager from '../components/admin/OAuthSessionManager';
 import OAuthAuditLogs from '../components/admin/OAuthAuditLogs';
+import PermissionMatrix from '../components/admin/PermissionMatrix';
 
 interface User {
   id: string;
