@@ -32,9 +32,11 @@ CREATE TABLE roles (
 CREATE TABLE groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) UNIQUE NOT NULL,
+    display_name VARCHAR(100),
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by UUID -- Will be linked to users.id after users table is created
 );
 
@@ -237,6 +239,9 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_workspaces_updated_at BEFORE UPDATE ON workspaces
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON groups
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert default data

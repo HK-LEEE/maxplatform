@@ -1315,6 +1315,7 @@ async def create_group(
     
     group = Group(
         name=request.name,
+        display_name=request.name,  # name과 동일하게 설정
         description=request.description,
         created_by=current_admin.id
     )
@@ -1365,6 +1366,11 @@ async def update_group(
     
     group.name = request.name
     group.description = request.description
+    # display_name이 제공되지 않으면 name과 동일하게 설정
+    if hasattr(request, 'display_name') and request.display_name:
+        group.display_name = request.display_name
+    else:
+        group.display_name = request.name
     
     db.commit()
     db.refresh(group)

@@ -73,9 +73,11 @@ class Group(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(100), unique=True, nullable=False)
+    display_name = Column(String(100), nullable=True)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     created_by = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)  # nullable로 변경
     
     # 관계 정의 (1:N 관계로 변경)
