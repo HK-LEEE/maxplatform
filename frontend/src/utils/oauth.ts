@@ -3,6 +3,8 @@
  * Provides utilities for OAuth 2.0 Authorization Code Flow with PKCE
  */
 
+import config from '../config/environment';
+
 // Generate a random string for code verifier
 export const generateCodeVerifier = (): string => {
   const array = new Uint8Array(32);
@@ -37,37 +39,37 @@ export const generateState = (): string => {
 export const OAUTH_CLIENTS = {
   maxlab: {
     client_id: 'maxlab',
-    redirect_uri: 'http://localhost:3010/oauth/callback',
+    redirect_uri: `${config.maxLabUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:experiments']
   },
   maxteamsync: {
     client_id: 'maxteamsync',
-    redirect_uri: 'http://localhost:3015/oauth/callback',
+    redirect_uri: `${config.maxTeamSyncUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:teams']
   },
   maxworkspace: {
     client_id: 'maxworkspace',
-    redirect_uri: 'http://localhost:3020/oauth/callback',
+    redirect_uri: `${config.maxWorkspaceUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:workspaces']
   },
   maxqueryhub: {
     client_id: 'maxqueryhub',
-    redirect_uri: 'http://localhost:3025/oauth/callback',
+    redirect_uri: `${config.maxQueryHubUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:queries']
   },
   maxllm: {
     client_id: 'maxllm',
-    redirect_uri: 'http://localhost:3030/oauth/callback',
+    redirect_uri: `${config.maxLlmUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:llm']
   },
   maxapa: {
     client_id: 'maxapa',
-    redirect_uri: 'http://localhost:3035/oauth/callback',
+    redirect_uri: `${config.maxApaUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:apis']
   },
   maxmlops: {
     client_id: 'maxmlops',
-    redirect_uri: 'http://localhost:3040/oauth/callback',
+    redirect_uri: `${config.maxMlopsUrl}/oauth/callback`,
     scopes: ['read:profile', 'read:features', 'read:groups', 'manage:models']
   }
 };
@@ -76,23 +78,25 @@ export type OAuthClientId = keyof typeof OAUTH_CLIENTS;
 
 // Get client config by URL or client ID
 export const getClientConfigByUrl = (url: string): typeof OAUTH_CLIENTS[OAuthClientId] | null => {
-  // Extract port from URL
-  const match = url.match(/localhost:(\d+)/);
-  if (!match) return null;
-  
-  const port = match[1];
-  const portToClientMap: { [key: string]: OAuthClientId } = {
-    '3010': 'maxlab',
-    '3015': 'maxteamsync',
-    '3020': 'maxworkspace',
-    '3025': 'maxqueryhub',
-    '3030': 'maxllm',
-    '3035': 'maxapa',
-    '3040': 'maxmlops'
+  // Create URL mapping based on environment config
+  const urlToClientMap: { [key: string]: OAuthClientId } = {
+    [config.maxLabUrl]: 'maxlab',
+    [config.maxTeamSyncUrl]: 'maxteamsync',
+    [config.maxWorkspaceUrl]: 'maxworkspace',
+    [config.maxQueryHubUrl]: 'maxqueryhub',
+    [config.maxLlmUrl]: 'maxllm',
+    [config.maxApaUrl]: 'maxapa',
+    [config.maxMlopsUrl]: 'maxmlops'
   };
   
-  const clientId = portToClientMap[port];
-  return clientId ? OAUTH_CLIENTS[clientId] : null;
+  // Try to match the full URL or base URL
+  for (const [baseUrl, clientId] of Object.entries(urlToClientMap)) {
+    if (url.startsWith(baseUrl)) {
+      return OAUTH_CLIENTS[clientId];
+    }
+  }
+  
+  return null;
 };
 
 // Build OAuth authorization URL
@@ -119,7 +123,7 @@ export const buildAuthorizationUrl = async (
     code_challenge_method: 'S256'
   });
   
-  const authServer = 'http://localhost:8000'; // MAX Platform OAuth server
+  const authServer = config.apiBaseUrl; // MAX Platform OAuth server
   return `${authServer}/api/oauth/authorize?${params.toString()}`;
 };
 
@@ -180,7 +184,7 @@ export const exchangeCodeForToken = async (
     // Exchange code for token
     console.log(`🔄 Exchanging authorization code for token (client: ${client.client_id})`);
     
-    const response = await fetch('http://localhost:8000/api/oauth/token', {
+    const response = await fetch(`${config.apiBaseUrl}/api/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'

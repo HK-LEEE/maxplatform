@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import config from '../config/environment';
 
 interface LLMOpsStatus {
   status: string;
@@ -36,7 +37,7 @@ const LLMOpsPage: React.FC = () => {
   // LLMOps 상태 확인
   const checkStatus = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/llmops/status');
+      const response = await fetch(`${config.apiBaseUrl}/api/llmops/status`);
       
       if (response.ok) {
         const data = await response.json();
@@ -56,7 +57,7 @@ const LLMOpsPage: React.FC = () => {
     setError('');
     
     try {
-      const response = await fetch('http://localhost:8000/api/llmops/start', {
+      const response = await fetch(`${config.apiBaseUrl}/api/llmops/start`, {
         method: 'POST',
       });
       
@@ -84,7 +85,7 @@ const LLMOpsPage: React.FC = () => {
     setError('');
     
     try {
-      const response = await fetch('http://localhost:8000/api/llmops/stop', {
+      const response = await fetch(`${config.apiBaseUrl}/api/llmops/stop`, {
         method: 'POST',
       });
       
@@ -105,7 +106,7 @@ const LLMOpsPage: React.FC = () => {
   // 플로우 목록 조회
   const fetchFlows = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/llmops/flows', {
+      const response = await fetch(`${config.apiBaseUrl}/api/llmops/flows`, {
         headers: getHeaders(),
       });
       

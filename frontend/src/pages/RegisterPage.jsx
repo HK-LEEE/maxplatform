@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Users } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import GroupSelectionModal from '../components/GroupSelectionModal'
+import config from '../config/environment'
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -89,7 +90,7 @@ const RegisterPage = () => {
         group_id: formData.group_id || null
       }
 
-      const response = await fetch('http://localhost:8000/api/auth/register', {
+      const response = await fetch(`${config.apiBaseUrl}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

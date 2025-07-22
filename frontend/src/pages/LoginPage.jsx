@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { authApi } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import config from '../config/environment'
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -52,7 +53,7 @@ const LoginPage = () => {
           
           if (isInPopup) {
             // 팝업 모드: 표준 OAuth 리다이렉트 방식
-            const authUrl = new URL('http://localhost:8000/api/oauth/authorize')
+            const authUrl = new URL(`${config.apiBaseUrl}/api/oauth/authorize`)
             Object.keys(oauthParams).forEach(key => {
               if (oauthParams[key] !== null) {
                 authUrl.searchParams.append(key, oauthParams[key])
@@ -69,7 +70,7 @@ const LoginPage = () => {
             return
           } else {
             // 일반 창 모드: 기존 로직 유지
-            const authUrl = new URL('http://localhost:8000/api/oauth/authorize')
+            const authUrl = new URL(`${config.apiBaseUrl}/api/oauth/authorize`)
             Object.keys(oauthParams).forEach(key => {
               if (oauthParams[key] !== null) {
                 authUrl.searchParams.append(key, oauthParams[key])

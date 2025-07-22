@@ -1,3 +1,5 @@
+import config from '../config/environment';
+
 interface ChromaCollection {
   id: string;
   name: string;
@@ -17,7 +19,7 @@ class ChromaDbApiService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000';
+    this.baseUrl = (import.meta as any).env?.VITE_API_BASE_URL || config.apiBaseUrl;
   }
 
   private getAuthToken(): string | null {

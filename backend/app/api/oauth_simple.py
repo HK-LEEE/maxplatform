@@ -732,7 +732,7 @@ def authorize(
                 oauth_params_encoded = quote(json.dumps(oauth_params))
                 
                 # 팝업 모드에서도 로그인 페이지로 리다이렉트
-                login_url = f"http://localhost:3000/login?oauth_return={oauth_params_encoded}"
+                login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}"
                 return RedirectResponse(url=login_url)
             
             # 일반 모드: 기존 로직 유지
@@ -757,7 +757,7 @@ def authorize(
             oauth_params_encoded = quote(json.dumps(oauth_params))
             
             # Redirect to login page with return URL
-            login_url = f"http://localhost:3000/login?oauth_return={oauth_params_encoded}"
+            login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}"
             
             log_oauth_action(
                 "authorize", client_id, None, False, 

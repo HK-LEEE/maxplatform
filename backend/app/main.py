@@ -6,6 +6,7 @@ import logging
 
 # Initialize centralized logging configuration
 from .utils.logging_config import setup_logging
+from .config import settings
 
 # 먼저 모든 모델을 import하여 테이블 생성 시 인식되도록 함
 from .models.user import User, Group, Role
@@ -67,30 +68,26 @@ main_logger.info("MAX Platform backend API starting up")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        # 기본 프론트엔드
-        "http://localhost:3000", 
-        "http://localhost:3001", 
-        "http://127.0.0.1:3000", 
-        "http://127.0.0.1:3001", 
-        "http://localhost:3005", 
-        "http://127.0.0.1:3005",
-        "http://localhost:3006",
-        "http://127.0.0.1:3006",
-        # OAuth 클라이언트 포트들
-        "http://localhost:3010",  # maxlab
-        "http://localhost:3015",  # maxteamsync
-        "http://localhost:3020",  # maxworkspace
-        "http://localhost:3025",  # maxqueryhub
-        "http://localhost:3030",  # maxllm
-        "http://localhost:3035",  # maxapa
-        "http://localhost:3040",  # maxmlops
-        "http://127.0.0.1:3010",  # maxlab
-        "http://127.0.0.1:3015",  # maxteamsync
-        "http://127.0.0.1:3020",  # maxworkspace
-        "http://127.0.0.1:3025",  # maxqueryhub
-        "http://127.0.0.1:3030",  # maxllm
-        "http://127.0.0.1:3035",  # maxapa
-        "http://127.0.0.1:3040",  # maxmlops
+        # MAX Platform 서비스 URL들
+        settings.max_platform_frontend_url,
+        settings.max_flowstudio_url,
+        settings.max_teamsync_url,
+        settings.max_lab_url,
+        settings.max_workspace_url,
+        settings.max_queryhub_url,
+        settings.max_llm_url,
+        settings.max_apa_url,
+        settings.max_mlops_url,
+        # 127.0.0.1 variants for development
+        settings.max_platform_frontend_url.replace("localhost", "127.0.0.1"),
+        settings.max_flowstudio_url.replace("localhost", "127.0.0.1"),
+        settings.max_teamsync_url.replace("localhost", "127.0.0.1"),
+        settings.max_lab_url.replace("localhost", "127.0.0.1"),
+        settings.max_workspace_url.replace("localhost", "127.0.0.1"),
+        settings.max_queryhub_url.replace("localhost", "127.0.0.1"),
+        settings.max_llm_url.replace("localhost", "127.0.0.1"),
+        settings.max_apa_url.replace("localhost", "127.0.0.1"),
+        settings.max_mlops_url.replace("localhost", "127.0.0.1"),
     ],
     allow_credentials=True,
     allow_methods=["*"],

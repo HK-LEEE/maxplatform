@@ -31,6 +31,45 @@ class Settings(BaseSettings):
     service_client_secret: str = os.getenv("SERVICE_CLIENT_SECRET", "service_maxplatform_2025_dev_secret")
     service_token_expire_hours: int = int(os.getenv("SERVICE_TOKEN_EXPIRE_HOURS", "24"))
     
+    # =================
+    # MAX Platform URL 설정 (Production 배포용)
+    # =================
+    # 환경 구분
+    max_platform_environment: str = os.getenv("MAX_PLATFORM_ENVIRONMENT", "development")
+    
+    # 현재 서버 정보
+    max_platform_host: str = os.getenv("MAX_PLATFORM_HOST", "0.0.0.0")
+    max_platform_port: int = int(os.getenv("MAX_PLATFORM_PORT", "8000"))
+    max_platform_api_url: str = os.getenv("MAX_PLATFORM_API_URL", "http://localhost:8000")
+    
+    # Frontend URL (OAuth 리다이렉트용)
+    max_platform_frontend_url: str = os.getenv("MAX_PLATFORM_FRONTEND_URL", "http://localhost:3000")
+    
+    # MAX Platform 서비스 URL
+    max_flowstudio_url: str = os.getenv("MAX_FLOWSTUDIO_URL", "http://localhost:3005")
+    max_flowstudio_callback_url: str = os.getenv("MAX_FLOWSTUDIO_CALLBACK_URL", "http://localhost:3005/oauth/callback")
+    
+    max_teamsync_url: str = os.getenv("MAX_TEAMSYNC_URL", "http://localhost:3015")
+    max_teamsync_callback_url: str = os.getenv("MAX_TEAMSYNC_CALLBACK_URL", "http://localhost:3015/oauth/callback")
+    
+    max_lab_url: str = os.getenv("MAX_LAB_URL", "http://localhost:3010")
+    max_lab_callback_url: str = os.getenv("MAX_LAB_CALLBACK_URL", "http://localhost:3010/oauth/callback")
+    
+    max_workspace_url: str = os.getenv("MAX_WORKSPACE_URL", "http://localhost:3020")
+    max_workspace_callback_url: str = os.getenv("MAX_WORKSPACE_CALLBACK_URL", "http://localhost:3020/oauth/callback")
+    
+    max_apa_url: str = os.getenv("MAX_APA_URL", "http://localhost:3035")
+    max_apa_callback_url: str = os.getenv("MAX_APA_CALLBACK_URL", "http://localhost:3035/oauth/callback")
+    
+    max_mlops_url: str = os.getenv("MAX_MLOPS_URL", "http://localhost:3040")
+    max_mlops_callback_url: str = os.getenv("MAX_MLOPS_CALLBACK_URL", "http://localhost:3040/oauth/callback")
+    
+    max_queryhub_url: str = os.getenv("MAX_QUERYHUB_URL", "http://localhost:3025")
+    max_queryhub_callback_url: str = os.getenv("MAX_QUERYHUB_CALLBACK_URL", "http://localhost:3025/oauth/callback")
+    
+    max_llm_url: str = os.getenv("MAX_LLM_URL", "http://localhost:3030")
+    max_llm_callback_url: str = os.getenv("MAX_LLM_CALLBACK_URL", "http://localhost:3030/oauth/callback")
+
     # Jupyter
     jupyter_base_url: str = os.getenv("JUPYTER_BASE_URL", "http://localhost")
     jupyter_port_start: int = 8888

@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { User, Workspace, FileItem, JupyterStatus } from '../types'
+import config from '../config/environment'
 
-const API_BASE_URL = 'http://localhost:8000/api'
+const API_BASE_URL = `${config.apiBaseUrl}/api`
 
 const api = axios.create({
   baseURL: API_BASE_URL,

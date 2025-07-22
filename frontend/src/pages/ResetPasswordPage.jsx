@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Mail, Phone } from 'lucide-react'
+import config from '../config/environment'
 
 const ResetPasswordPage = () => {
   const [formData, setFormData] = useState({
@@ -27,7 +28,7 @@ const ResetPasswordPage = () => {
     setIsLoading(true)
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/reset-password', {
+      const response = await fetch(`${config.apiBaseUrl}/api/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, Users, Search } from 'lucide-react'
+import config from '../config/environment'
 
 const GroupSelectionModal = ({ isOpen, onClose, onSelect }) => {
   const [groups, setGroups] = useState([])
@@ -18,7 +19,7 @@ const GroupSelectionModal = ({ isOpen, onClose, onSelect }) => {
     setError('')
     
     try {
-      const response = await fetch('http://localhost:8000/api/auth/available-groups')
+      const response = await fetch(`${config.apiBaseUrl}/api/auth/available-groups`)
       if (response.ok) {
         const data = await response.json()
         setGroups(data)
