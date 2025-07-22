@@ -163,7 +163,7 @@ const RegisterPage = () => {
                       name="real_name"
                       type="text"
                       required
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="실명을 입력하세요"
                       value={formData.real_name}
                       onChange={handleChange}
@@ -178,7 +178,7 @@ const RegisterPage = () => {
                       id="display_name"
                       name="display_name"
                       type="text"
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="표시명 (선택)"
                       value={formData.display_name}
                       onChange={handleChange}
@@ -195,7 +195,7 @@ const RegisterPage = () => {
                     name="email"
                     type="email"
                     required
-                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                     placeholder="이메일을 입력하세요"
                     value={formData.email}
                     onChange={handleChange}
@@ -211,7 +211,7 @@ const RegisterPage = () => {
                     name="phone_number"
                     type="tel"
                     required
-                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                    className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                     placeholder="010-1234-5678"
                     value={formData.phone_number}
                     onChange={handleChange}
@@ -251,7 +251,7 @@ const RegisterPage = () => {
                       id="department"
                       name="department"
                       type="text"
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="부서 (선택)"
                       value={formData.department}
                       onChange={handleChange}
@@ -266,7 +266,7 @@ const RegisterPage = () => {
                       id="position"
                       name="position"
                       type="text"
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="직책 (선택)"
                       value={formData.position}
                       onChange={handleChange}
@@ -285,7 +285,7 @@ const RegisterPage = () => {
                       name="password"
                       type="password"
                       required
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="비밀번호"
                       value={formData.password}
                       onChange={handleChange}
@@ -301,7 +301,7 @@ const RegisterPage = () => {
                       name="confirmPassword"
                       type="password"
                       required
-                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="비밀번호 확인"
                       value={formData.confirmPassword}
                       onChange={handleChange}

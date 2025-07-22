@@ -111,7 +111,7 @@ const ResetPasswordPage = () => {
                       name="email"
                       type="email"
                       required
-                      className="w-full pl-10 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full pl-10 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="등록된 이메일을 입력하세요"
                       value={formData.email}
                       onChange={handleChange}
@@ -134,7 +134,7 @@ const ResetPasswordPage = () => {
                       maxLength="4"
                       pattern="[0-9]{4}"
                       required
-                      className="w-full pl-10 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200"
+                      className="w-full pl-10 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all duration-200 text-neutral-900"
                       placeholder="전화번호 뒷자리 4자리"
                       value={formData.phone_last_digits}
                       onChange={handleChange}
