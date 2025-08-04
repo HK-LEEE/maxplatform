@@ -9,7 +9,7 @@ from ..database import get_db
 from ..models import User, Role, Group, Permission, Feature
 from ..routers.auth import get_current_admin_user
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 @router.get("/")
 async def admin_dashboard(
