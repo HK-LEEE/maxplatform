@@ -85,6 +85,7 @@ def check_user_access_permission(requesting_user: User, target_user_id: str) -> 
 
 @router.get("/search")
 def search_users(
+    q: Optional[str] = Query(None, description="통합 검색어 (이메일, 이름)"),
     email: Optional[str] = Query(None, description="이메일로 사용자 검색"),
     name: Optional[str] = Query(None, description="이름으로 사용자 검색"),
     limit: int = Query(10, ge=1, le=50, description="결과 제한"),
@@ -97,10 +98,12 @@ def search_users(
     - 본인 정보는 항상 검색 가능
     - 관리자는 모든 사용자 검색 가능
     - 일반 사용자는 활성화된 사용자만 검색 가능 (제한된 정보)
+    - q 파라미터: 이메일, 실명, 표시명 통합 검색
+    - email/name 파라미터: 특정 필드 검색 (레거시 지원)
     """
     try:
-        if not email and not name:
-            raise HTTPException(status_code=400, detail="email 또는 name 파라미터가 필요합니다")
+        if not any([q, email, name]):
+            raise HTTPException(status_code=400, detail="검색어가 필요합니다 (q, email, 또는 name)")
         
         # 기본 쿼리 (활성 사용자만)
         query = db.query(User).options(joinedload(User.group))
@@ -113,10 +116,20 @@ def search_users(
             )
         
         # 검색 조건 추가
-        if email:
+        if q:
+            # 통합 검색: 이메일, 실명, 표시명 모두 검색
+            query = query.filter(
+                or_(
+                    User.email.ilike(f"%{q}%"),
+                    User.real_name.ilike(f"%{q}%"),
+                    User.display_name.ilike(f"%{q}%")
+                )
+            )
+        elif email:
+            # 이메일 전용 검색 (레거시 지원)
             query = query.filter(User.email.ilike(f"%{email}%"))
-        
-        if name:
+        elif name:
+            # 이름 전용 검색 (레거시 지원)
             query = query.filter(
                 or_(
                     User.real_name.ilike(f"%{name}%"),
@@ -158,12 +171,15 @@ def search_users(
                     group_name=None   # 민감 정보 제외
                 ))
         
-        logger.info(f"User {current_user.email} searched users with email='{email}', name='{name}', found {len(results)} results")
+        logger.info(f"User {current_user.email} searched users with q='{q}', email='{email}', name='{name}', found {len(results)} results")
         
         return results
         
+    except HTTPException:
+        # HTTP 예외는 그대로 전달 (400 Bad Request 등)
+        raise
     except Exception as e:
-        logger.error(f"Error searching users: {str(e)}")
+        logger.error(f"Error searching users: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="사용자 검색 중 오류가 발생했습니다")
 
 

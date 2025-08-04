@@ -83,6 +83,7 @@ def check_group_access_permission(user: User, group_id: str) -> bool:
 
 @router.get("/search")
 def search_groups(
+    q: Optional[str] = Query(None, description="통합 검색어 (그룹명, 표시명)"),
     name: Optional[str] = Query(None, description="그룹명으로 검색"),
     display_name: Optional[str] = Query(None, description="표시명으로 검색"),
     limit: int = Query(10, ge=1, le=50, description="결과 제한"),
@@ -94,10 +95,12 @@ def search_groups(
     
     - 관리자는 모든 그룹 검색 가능
     - 일반 사용자는 활성화된 그룹만 검색 가능
+    - q 파라미터: 그룹명, 표시명 통합 검색
+    - name/display_name 파라미터: 특정 필드 검색 (레거시 지원)
     """
     try:
-        if not name and not display_name:
-            raise HTTPException(status_code=400, detail="name 또는 display_name 파라미터가 필요합니다")
+        if not any([q, name, display_name]):
+            raise HTTPException(status_code=400, detail="검색어가 필요합니다 (q, name, 또는 display_name)")
         
         # 기본 쿼리
         query = db.query(Group)
@@ -107,10 +110,19 @@ def search_groups(
             query = query.filter(Group.is_active == True)
         
         # 검색 조건 추가
-        if name:
+        if q:
+            # 통합 검색: 그룹명, 표시명 모두 검색
+            query = query.filter(
+                or_(
+                    Group.name.ilike(f"%{q}%"),
+                    Group.display_name.ilike(f"%{q}%")
+                )
+            )
+        elif name:
+            # 그룹명 전용 검색 (레거시 지원)
             query = query.filter(Group.name.ilike(f"%{name}%"))
-        
-        if display_name:
+        elif display_name:
+            # 표시명 전용 검색 (레거시 지원)
             query = query.filter(Group.display_name.ilike(f"%{display_name}%"))
         
         groups = query.limit(limit).all()
@@ -133,12 +145,15 @@ def search_groups(
                 member_count=member_count
             ))
         
-        logger.info(f"User {current_user.email} searched groups with name='{name}', display_name='{display_name}', found {len(results)} results")
+        logger.info(f"User {current_user.email} searched groups with q='{q}', name='{name}', display_name='{display_name}', found {len(results)} results")
         
         return results
         
+    except HTTPException:
+        # HTTP 예외는 그대로 전달 (400 Bad Request 등)
+        raise
     except Exception as e:
-        logger.error(f"Error searching groups: {str(e)}")
+        logger.error(f"Error searching groups: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="그룹 검색 중 오류가 발생했습니다")
 
 

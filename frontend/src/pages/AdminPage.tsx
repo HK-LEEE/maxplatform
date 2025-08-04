@@ -218,10 +218,10 @@ const AdminPage: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       const [usersRes, groupsRes, featuresRes, categoriesRes] = await Promise.all([
-        fetch('/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/admin/groups', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/admin/features', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/admin/feature-categories', { headers: { Authorization: `Bearer ${token}` } })
+        fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/groups', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/admin/features', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/user_with_relations/admin/feature-categories', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (usersRes.ok) {
