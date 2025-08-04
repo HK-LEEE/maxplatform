@@ -119,6 +119,40 @@ class Settings(BaseSettings):
     ai_max_chat_history: int = int(os.getenv("AI_MAX_CHAT_HISTORY", "10"))
     ai_enabled_features: str = os.getenv("AI_ENABLED_FEATURES", "chat,completion,learn")
     
+    # =================
+    # OIDC (OpenID Connect) 설정
+    # =================
+    # OIDC 발급자 (Issuer)
+    oidc_issuer: str = os.getenv("OIDC_ISSUER", max_platform_api_url)
+    
+    # ID Token 서명 알고리즘
+    oidc_signing_algorithm: str = os.getenv("OIDC_SIGNING_ALG", "RS256")
+    
+    # 키 로테이션 주기 (일)
+    oidc_key_rotation_days: int = int(os.getenv("OIDC_KEY_ROTATION_DAYS", "90"))
+    
+    # ID Token 만료 시간 (분)
+    oidc_id_token_expire_minutes: int = int(os.getenv("OIDC_ID_TOKEN_EXPIRE_MINUTES", "60"))
+    
+    # OIDC 마이그레이션 설정
+    oidc_migration_enabled: bool = os.getenv("OIDC_MIGRATION_ENABLED", "true").lower() == "true"
+    oidc_dual_mode: bool = os.getenv("OIDC_DUAL_MODE", "true").lower() == "true"  # OAuth 2.0과 OIDC 동시 지원
+    oidc_legacy_hs256_support: bool = os.getenv("OIDC_LEGACY_HS256", "true").lower() == "true"  # 전환 기간 동안 HS256 지원
+    oidc_migration_grace_period_days: int = int(os.getenv("OIDC_GRACE_PERIOD_DAYS", "90"))
+    
+    # 지원되는 OIDC Claims
+    oidc_supported_claims: list = [
+        "sub", "name", "given_name", "family_name", "middle_name", "nickname",
+        "preferred_username", "profile", "picture", "website", "gender",
+        "birthdate", "zoneinfo", "locale", "updated_at",
+        "email", "email_verified", 
+        "phone_number", "phone_number_verified",
+        "address",
+        "groups", "group_id", "group_name",  # MAX Platform custom claims
+        "role", "role_id", "role_name", "permissions",  # MAX Platform custom claims
+        "is_admin"  # MAX Platform custom claim
+    ]
+    
     def get_workspace_path(self, user_id, workspace_id: int = None) -> str:
         """워크스페이스 경로 생성 - data/users/{user_id}/{workspace_id} 형태"""
         # UUID 객체를 문자열로 변환

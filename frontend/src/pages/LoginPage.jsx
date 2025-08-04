@@ -4,6 +4,7 @@ import { Eye, EyeOff, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { authApi } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import config from '../config/environment'
+import toast from 'react-hot-toast'
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -20,6 +21,7 @@ const LoginPage = () => {
 
   // OAuth 리턴 파라미터 확인
   const oauthReturn = searchParams.get('oauth_return')
+  const forceLogin = searchParams.get('force_login') === 'true'
   
   // 무한루프 방지를 위한 처리 완료 플래그 (useRef로 리렌더링 방지)
   const oauthProcessedRef = useRef(false)
@@ -27,12 +29,29 @@ const LoginPage = () => {
 
   // 이미 로그인된 경우 리다이렉트 처리
   useEffect(() => {
+    console.log('🔍 OAuth useEffect triggered:', {
+      isAuthenticated,
+      authLoading,
+      oauthReturn: !!oauthReturn,
+      forceLogin,
+      oauthProcessedRef: oauthProcessedRef.current
+    });
+
     // 이미 처리된 경우 무시
     if (oauthProcessedRef.current) {
+      console.log('⏭️ OAuth already processed, skipping...');
+      return
+    }
+
+    // force_login=true인 경우에도 새로 로그인한 후에는 OAuth 플로우를 계속해야 함
+    if (forceLogin && !isAuthenticated) {
+      console.log('🔒 force_login detected - showing login form')
+      // 로그인 폼을 보여주기 위해 여기서는 return
       return
     }
 
     if (!authLoading && isAuthenticated) {
+      console.log('✅ User authenticated, checking OAuth return...');
       if (oauthReturn) {
         // OAuth 플로우로 복귀
         try {
@@ -107,6 +126,27 @@ const LoginPage = () => {
     }
   }, [])
 
+  // 로그아웃 상태 메시지 처리
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const logoutStatus = params.get('logout')
+    
+    if (logoutStatus === 'success') {
+      toast.success('성공적으로 로그아웃되었습니다.')
+    } else if (logoutStatus === 'error') {
+      toast.error('로그아웃 중 오류가 발생했습니다.')
+    } else if (logoutStatus === 'local') {
+      toast.info('로컬 세션에서 로그아웃되었습니다.')
+    }
+    
+    // URL에서 logout 파라미터 제거
+    if (logoutStatus) {
+      params.delete('logout')
+      const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '')
+      window.history.replaceState({}, '', newUrl)
+    }
+  }, [])
+
   const handleChange = (e) => {
     setFormData({
       ...formData,
@@ -122,13 +162,40 @@ const LoginPage = () => {
 
     try {
       await login(formData.email, formData.password)
-      // AuthContext가 상태를 관리하므로 직접 navigate 호출 불필요
-      // useEffect에서 isAuthenticated 변경 시 자동 리다이렉트됨
+      
+      // 로그인 성공 후 OAuth return 처리
+      if (oauthReturn) {
+        console.log('🚀 Login successful, processing OAuth return...')
+        
+        // force_login 파라미터 제거하고 OAuth로 리다이렉트
+        try {
+          const oauthParams = JSON.parse(decodeURIComponent(oauthReturn))
+          
+          // prompt=login 제거 (무한 루프 방지)
+          delete oauthParams.prompt
+          delete oauthParams.max_age
+          
+          const authUrl = new URL(`${config.apiBaseUrl}/api/oauth/authorize`)
+          
+          Object.keys(oauthParams).forEach(key => {
+            if (oauthParams[key] !== null && oauthParams[key] !== undefined) {
+              authUrl.searchParams.append(key, oauthParams[key])
+            }
+          })
+          
+          console.log('🔄 Redirecting to OAuth authorize (without prompt=login):', authUrl.toString())
+          
+          // 즉시 리다이렉트
+          window.location.href = authUrl.toString()
+          return
+        } catch (error) {
+          console.error('OAuth return processing error:', error)
+        }
+      }
     } catch (error) {
       console.error('Login error:', error)
       const errorMessage = error.response?.data?.detail || error.message || '로그인에 실패했습니다.'
       setError(errorMessage)
-    } finally {
       setLoading(false)
     }
   }
@@ -156,6 +223,11 @@ const LoginPage = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
+            {forceLogin && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-xl text-sm animate-slide-up">
+                다른 계정으로 로그인하려면 이메일과 비밀번호를 입력하세요.
+              </div>
+            )}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm animate-slide-up">
                 {error}

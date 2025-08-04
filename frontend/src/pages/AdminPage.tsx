@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import FeatureLogo from '../components/common/FeatureLogo';
 import { llmChatApi } from '../services/llmChatApi';
+import { llmModelsAPI } from '../services/llmModelsApi';
 import { LLMModelManagement, LLMModelCreate, ModelType, OwnerType } from '../types/llmChat';
 import OAuthClientManager from '../components/admin/OAuthClientManager';
 import OAuthSessionManager from '../components/admin/OAuthSessionManager';
@@ -253,14 +254,15 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  // LLM 모델 로딩 함수
+  // LLM 모델 로딩 함수 - Wave 1 개선: 통합 API 클라이언트 사용
   const loadLlmModels = async () => {
     setLlmModelsLoading(true);
     setLlmModelsError(null);
     
     try {
       console.log('LLM 모델 로딩 시작...');
-      const modelsData = await llmChatApi.getLLMModels();
+      // 관리자 페이지에서는 모든 모델을 조회 (accessible_only=false)
+      const modelsData = await llmModelsAPI.getModels(false);
       console.log('LLM 모델 로드 성공:', modelsData);
       setLlmModels(modelsData);
     } catch (error) {
@@ -271,41 +273,19 @@ const AdminPage: React.FC = () => {
     }
   };
 
-  // 그룹의 LLM 모델 권한 로딩 함수
+  // 그룹의 LLM 모델 권한 로딩 함수 - Wave 1 개선: 통합 API 클라이언트 사용
   const loadGroupModelPermissions = async (groupId: string) => {
     try {
       console.log('그룹 LLM 모델 권한 조회 시작:', groupId);
-      const assignedModelIds: string[] = [];
-      const assignedModelsList: LLMModelManagement[] = [];
       
-      // 각 모델의 권한을 확인하여 그룹이 할당된 모델들을 찾음
-      for (const model of llmModels) {
-        try {
-          const permissions = await fetch(`/api/llm-models/${model.id}/permissions`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-          });
-          
-          if (permissions.ok) {
-            const permissionsData = await permissions.json();
-            const hasGroupPermission = permissionsData.some((p: any) => 
-              p.grantee_type === 'GROUP' && p.grantee_id === groupId
-            );
-            
-            if (hasGroupPermission) {
-              assignedModelIds.push(model.id);
-              assignedModelsList.push(model);
-            }
-          }
-        } catch (error) {
-          console.error(`모델 ${model.id} 권한 조회 실패:`, error);
-        }
-      }
+      // 새로운 통합 API 클라이언트 사용
+      const { allModels, assignedModels, assignedModelIds } = await llmModelsAPI.getGroupModelPermissions(groupId);
       
-      console.log('할당된 모델:', assignedModelsList);
-      console.log('미할당 모델:', llmModels.filter(m => !assignedModelIds.includes(m.id)));
+      console.log('할당된 모델:', assignedModels);
+      console.log('미할당 모델:', allModels.filter(m => !assignedModelIds.includes(m.id)));
       
-      setAssignedModels(assignedModelsList);
-      setUnassignedModels(llmModels.filter(m => !assignedModelIds.includes(m.id)));
+      setAssignedModels(assignedModels);
+      setUnassignedModels(allModels.filter(m => !assignedModelIds.includes(m.id)));
       setSelectedGroupModels(assignedModelIds);
     } catch (error) {
       console.error('그룹 LLM 모델 권한 조회 실패:', error);
@@ -794,66 +774,12 @@ const AdminPage: React.FC = () => {
           });
         }
 
-        // LLM 모델 권한 업데이트
-        if (selectedGroup) {
-          // 기존 그룹 편집시: 기존 권한 삭제 후 새로 추가
-          try {
-            // 기존 그룹 권한 조회 및 삭제
-            const existingPermissions = await fetch(`/api/llm-models?accessible_only=false`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            
-            if (existingPermissions.ok) {
-              const modelsData = await existingPermissions.json();
-              
-              // 각 모델의 그룹 권한 삭제
-              for (const model of modelsData) {
-                try {
-                  const permissionsRes = await fetch(`/api/llm-models/${model.id}/permissions`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                  });
-                  
-                  if (permissionsRes.ok) {
-                    const permissions = await permissionsRes.json();
-                    const groupPermission = permissions.find((p: any) => 
-                      p.grantee_type === 'GROUP' && p.grantee_id === groupData.id
-                    );
-                    
-                    if (groupPermission) {
-                      await fetch(`/api/llm-models/${model.id}/permissions/${groupPermission.id}`, {
-                        method: 'DELETE',
-                        headers: { Authorization: `Bearer ${token}` }
-                      });
-                    }
-                  }
-                } catch (error) {
-                  console.error(`모델 ${model.id} 권한 삭제 실패:`, error);
-                }
-              }
-            }
-          } catch (error) {
-            console.error('기존 모델 권한 삭제 실패:', error);
-          }
-        }
-
-        // 새로 선택된 모델들에 권한 부여
-        for (const modelId of selectedGroupModels) {
-          try {
-            await fetch(`/api/llm-models/${modelId}/permissions`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                model_id: modelId,
-                grantee_type: 'GROUP',
-                grantee_id: groupData.id
-              })
-            });
-          } catch (error) {
-            console.error(`모델 ${modelId} 권한 부여 실패:`, error);
-          }
+        // LLM 모델 권한 업데이트 - Wave 1 개선: 통합 API 클라이언트 사용
+        try {
+          await llmModelsAPI.updateGroupModelPermissions(groupData.id, selectedGroupModels);
+          console.log('그룹 LLM 모델 권한 업데이트 완료');
+        } catch (error) {
+          console.error('그룹 LLM 모델 권한 업데이트 실패:', error);
         }
 
         await fetchData();
@@ -947,7 +873,7 @@ const AdminPage: React.FC = () => {
         model_type: model.model_type,
         model_id: model.model_id,
         description: model.description || '',
-        config: model.config,
+        config: model.config || {},
         owner_type: model.owner_type,
         owner_id: model.owner_id,
         is_active: model.is_active
@@ -2621,10 +2547,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">API Key *</label>
                         <input
                           type="password"
-                          value={editedModelInfo.config.api_key || ''}
+                          value={editedModelInfo.config?.api_key || ''}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, api_key: e.target.value}
+                            config: {...(editedModelInfo.config || {}), api_key: e.target.value}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                           placeholder="Azure OpenAI API Key"
@@ -2634,10 +2560,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint *</label>
                         <input
                           type="url"
-                          value={editedModelInfo.config.endpoint || ''}
+                          value={editedModelInfo.config?.endpoint || ''}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, endpoint: e.target.value}
+                            config: {...(editedModelInfo.config || {}), endpoint: e.target.value}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                           placeholder="https://your-resource.openai.azure.com/"
@@ -2649,10 +2575,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">API Version</label>
                         <input
                           type="text"
-                          value={editedModelInfo.config.api_version || '2024-02-01'}
+                          value={editedModelInfo.config?.api_version || '2024-02-01'}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, api_version: e.target.value}
+                            config: {...(editedModelInfo.config || {}), api_version: e.target.value}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                         />
@@ -2661,10 +2587,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Deployment Name *</label>
                         <input
                           type="text"
-                          value={editedModelInfo.config.deployment_name || ''}
+                          value={editedModelInfo.config?.deployment_name || ''}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, deployment_name: e.target.value},
+                            config: {...(editedModelInfo.config || {}), deployment_name: e.target.value},
                             model_id: e.target.value
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
@@ -2678,10 +2604,10 @@ const AdminPage: React.FC = () => {
                           min="0"
                           max="2"
                           step="0.1"
-                          value={editedModelInfo.config.temperature || 0.7}
+                          value={editedModelInfo.config?.temperature || 0.7}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, temperature: parseFloat(e.target.value)}
+                            config: {...(editedModelInfo.config || {}), temperature: parseFloat(e.target.value)}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                         />
@@ -2693,10 +2619,10 @@ const AdminPage: React.FC = () => {
                         type="number"
                         min="1"
                         max="4000"
-                        value={editedModelInfo.config.max_tokens || 1000}
+                        value={editedModelInfo.config?.max_tokens || 1000}
                         onChange={(e) => setEditedModelInfo({
                           ...editedModelInfo,
-                          config: {...editedModelInfo.config, max_tokens: parseInt(e.target.value)}
+                          config: {...(editedModelInfo.config || {}), max_tokens: parseInt(e.target.value)}
                         })}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                       />
@@ -2747,10 +2673,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Host *</label>
                         <input
                           type="text"
-                          value={editedModelInfo.config.host || 'localhost'}
+                          value={editedModelInfo.config?.host || 'localhost'}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, host: e.target.value}
+                            config: {...(editedModelInfo.config || {}), host: e.target.value}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                           placeholder="localhost"
@@ -2760,10 +2686,10 @@ const AdminPage: React.FC = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Port *</label>
                         <input
                           type="number"
-                          value={editedModelInfo.config.port || 11434}
+                          value={editedModelInfo.config?.port || 11434}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, port: parseInt(e.target.value) || 11434}
+                            config: {...(editedModelInfo.config || {}), port: parseInt(e.target.value) || 11434}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                           placeholder="11434"
@@ -2775,10 +2701,10 @@ const AdminPage: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">모델 선택 *</label>
                       {ollamaModels.length > 0 ? (
                         <select
-                          value={editedModelInfo.config.model_name || ''}
+                          value={editedModelInfo.config?.model_name || ''}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, model_name: e.target.value},
+                            config: {...(editedModelInfo.config || {}), model_name: e.target.value},
                             model_id: e.target.value
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
@@ -2793,10 +2719,10 @@ const AdminPage: React.FC = () => {
                       ) : (
                         <input
                           type="text"
-                          value={editedModelInfo.config.model_name || ''}
+                          value={editedModelInfo.config?.model_name || ''}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, model_name: e.target.value},
+                            config: {...(editedModelInfo.config || {}), model_name: e.target.value},
                             model_id: e.target.value
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
@@ -2813,10 +2739,10 @@ const AdminPage: React.FC = () => {
                           min="0"
                           max="2"
                           step="0.1"
-                          value={editedModelInfo.config.temperature || 0.7}
+                          value={editedModelInfo.config?.temperature || 0.7}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, temperature: parseFloat(e.target.value)}
+                            config: {...(editedModelInfo.config || {}), temperature: parseFloat(e.target.value)}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                         />
@@ -2827,10 +2753,10 @@ const AdminPage: React.FC = () => {
                           type="number"
                           min="1"
                           max="4000"
-                          value={editedModelInfo.config.num_predict || 1000}
+                          value={editedModelInfo.config?.num_predict || 1000}
                           onChange={(e) => setEditedModelInfo({
                             ...editedModelInfo,
-                            config: {...editedModelInfo.config, num_predict: parseInt(e.target.value)}
+                            config: {...(editedModelInfo.config || {}), num_predict: parseInt(e.target.value)}
                           })}
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300"
                         />

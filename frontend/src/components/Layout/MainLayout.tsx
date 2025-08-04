@@ -9,13 +9,24 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import SessionLogoutModal from '../SessionLogoutModal';
+import useSessionLogout from '../../hooks/useSessionLogout';
+import toast from 'react-hot-toast';
 
 const MainLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // 로그아웃 모달 관련
+  const {
+    sessionsData,
+    fetchActiveSessions,
+    executeLogout
+  } = useSessionLogout();
 
   // 사용자가 로그인되지 않은 경우 로그인 페이지로 리다이렉트
   useEffect(() => {
@@ -35,14 +46,37 @@ const MainLayout: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = async () => {
+  // 로그아웃 모달 열기
+  const handleLogoutClick = () => {
+    setDropdownOpen(false); // 드롭다운 먼저 닫기
+    setIsModalOpen(true); // 바로 모달 열기 (백엔드 API 없이)
+  };
+
+  // 실제 로그아웃 처리 (모달에서 호출)
+  const handleLogout = async (logoutType: 'current' | 'all', reason?: string) => {
     try {
-      await logout();
-      navigate('/login');
+      if (logoutType === 'all') {
+        // 모든 세션 로그아웃 - 백엔드 API 호출 시도
+        try {
+          await executeLogout(logoutType, reason);
+        } catch (error) {
+          console.log('백엔드 로그아웃 API 오류:', error);
+          // 오류가 있어도 계속 진행
+        }
+      }
+      
+      // Single Logout 수행
+      await logout(true);
+      
+      toast.success(
+        logoutType === 'current' 
+          ? '현재 세션에서 로그아웃되었습니다'
+          : '모든 세션에서 로그아웃되었습니다'
+      );
     } catch (error) {
-      console.error('로그아웃 실패:', error);
-      // 에러가 발생해도 로그인 페이지로 이동
-      navigate('/login');
+      console.error('Logout error:', error);
+      // 오류 시에도 로그아웃 진행
+      await logout(true);
     }
   };
 
@@ -134,7 +168,7 @@ const MainLayout: React.FC = () => {
                     </button>
                     <hr className="my-1 border-gray-100" />
                     <button 
-                      onClick={handleLogout}
+                      onClick={handleLogoutClick}
                       className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
                     >
                       <LogOut className="w-4 h-4" />
@@ -152,6 +186,23 @@ const MainLayout: React.FC = () => {
       <main className="flex-1">
         <Outlet />
       </main>
+
+      {/* 로그아웃 모달 */}
+      <SessionLogoutModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        currentSession={sessionsData?.current_session || {
+          session_id: 'current-session',
+          client_name: 'MAX Platform Web',
+          created_at: new Date().toISOString(),
+          is_current_session: true,
+          is_suspicious: false
+        }}
+        otherSessions={sessionsData?.other_sessions || []}
+        totalSessions={sessionsData?.total_sessions || 1}
+        suspiciousSessions={sessionsData?.suspicious_sessions || 0}
+        onLogout={handleLogout}
+      />
     </div>
   );
 };

@@ -1,19 +1,25 @@
 """
-LLM 모델 관리 API
+LLM 모델 관리 API - Wave 2 개선: Circuit Breaker 패턴 적용
 모델 권한 시스템을 포함한 LLM 모델 관리 기능
+데이터베이스 타임아웃 및 연결 실패에 대한 복원력 제공
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, TimeoutError
 from typing import List, Optional
 from pydantic import BaseModel
 from uuid import UUID
+import logging
 
 from ..database import get_db
 from ..models.llm_chat import MAXLLM_Model, MAXLLM_Model_Permission, ModelType, OwnerType
 from ..models.user import User, Group
 from ..routers.auth import get_current_user
+from ..utils.circuit_breaker import circuit_breaker, CircuitBreakerError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/llm-models", tags=["LLM Models"])
 
@@ -115,7 +121,7 @@ def _check_model_manage_permission(db: Session, model: MAXLLM_Model, user_id: st
         return False
     
     # 관리자는 모든 모델 관리 가능
-    if user.is_superuser:
+    if user.is_admin:
         return True
     
     # 모델 소유자인 경우
@@ -188,19 +194,28 @@ async def get_models(
     db: Session = Depends(get_db),
     accessible_only: bool = Query(False, description="사용자가 접근 가능한 모델만 조회")
 ):
-    """LLM 모델 목록 조회"""
+    """LLM 모델 목록 조회 - Wave 2 개선: Circuit Breaker 적용"""
     try:
-        if accessible_only:
-            # 사용자가 접근 가능한 모델만 조회
-            query = _get_user_accessible_models(db, str(current_user.id))
-        else:
-            # 관리자는 모든 모델, 일반 사용자는 접근 가능한 모델만
-            if current_user.is_superuser:
-                query = db.query(MAXLLM_Model)
-            else:
-                query = _get_user_accessible_models(db, str(current_user.id))
-        
-        models = query.all()
+        # Circuit breaker로 보호되는 모델 목록 조회
+        try:
+            models = await _query_all_models_with_circuit_breaker(
+                db, 
+                str(current_user.id), 
+                current_user.is_admin, 
+                accessible_only
+            )
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for models list query: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="모델 목록 서비스가 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요."
+            )
+        except (OperationalError, TimeoutError) as e:
+            logger.error(f"Database timeout for models list query: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="모델 목록 조회 처리 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+            )
         
         result = []
         for model in models:
@@ -216,7 +231,7 @@ async def get_models(
             owner_name = None
             if model.owner_type == OwnerType.USER:
                 owner = db.query(User).filter(User.id == model.owner_id).first()
-                owner_name = owner.full_name if owner else model.owner_id
+                owner_name = owner.real_name if owner else model.owner_id
             elif model.owner_type == OwnerType.GROUP:
                 owner = db.query(Group).filter(Group.id == model.owner_id).first()
                 owner_name = owner.name if owner else model.owner_id
@@ -279,16 +294,70 @@ async def get_accessible_models(
             detail=f"접근 가능한 모델 조회 실패: {str(e)}"
         )
 
+@circuit_breaker(
+    name="llm_model_permissions_query",
+    failure_threshold=3,
+    recovery_timeout=30,
+    expected_exception=SQLAlchemyError,
+    timeout=10
+)
+def _query_model_permissions_with_circuit_breaker(db: Session, model_id: str):
+    """Circuit breaker로 보호되는 모델 권한 조회"""
+    return db.query(MAXLLM_Model_Permission).filter(
+        MAXLLM_Model_Permission.model_id == model_id
+    ).all()
+
+@circuit_breaker(
+    name="llm_model_query",
+    failure_threshold=3,
+    recovery_timeout=30,
+    expected_exception=SQLAlchemyError,
+    timeout=10
+)
+def _query_model_with_circuit_breaker(db: Session, model_id: str):
+    """Circuit breaker로 보호되는 모델 조회"""
+    return db.query(MAXLLM_Model).filter(MAXLLM_Model.id == model_id).first()
+
+@circuit_breaker(
+    name="llm_models_list_query",
+    failure_threshold=5,
+    recovery_timeout=60,
+    expected_exception=SQLAlchemyError,
+    timeout=15
+)
+def _query_all_models_with_circuit_breaker(db: Session, user_id: str, is_admin: bool, accessible_only: bool):
+    """Circuit breaker로 보호되는 모델 목록 조회"""
+    if accessible_only or not is_admin:
+        query = _get_user_accessible_models(db, user_id)
+    else:
+        query = db.query(MAXLLM_Model)
+    
+    return query.all()
+
 @router.get("/{model_id}/permissions", response_model=List[ModelPermissionResponse])
 async def get_model_permissions(
     model_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """특정 모델의 권한 목록 조회"""
+    """특정 모델의 권한 목록 조회 - Wave 2 개선: Circuit Breaker 적용"""
     try:
-        # 모델 존재 확인
-        model = db.query(MAXLLM_Model).filter(MAXLLM_Model.id == model_id).first()
+        # Circuit breaker로 보호되는 모델 존재 확인
+        try:
+            model = await _query_model_with_circuit_breaker(db, model_id)
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for model query: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="서비스가 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요."
+            )
+        except (OperationalError, TimeoutError) as e:
+            logger.error(f"Database timeout for model {model_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="요청 처리 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+            )
+        
         if not model:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -302,21 +371,33 @@ async def get_model_permissions(
                 detail="모델 권한을 조회할 권한이 없습니다"
             )
         
-        permissions = db.query(MAXLLM_Model_Permission).filter(
-            MAXLLM_Model_Permission.model_id == model_id
-        ).all()
+        # Circuit breaker로 보호되는 권한 조회
+        try:
+            permissions = await _query_model_permissions_with_circuit_breaker(db, model_id)
+        except CircuitBreakerError as e:
+            logger.warning(f"Circuit breaker open for permissions query: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="권한 조회 서비스가 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요."
+            )
+        except (OperationalError, TimeoutError) as e:
+            logger.error(f"Database timeout for permissions query {model_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="권한 조회 처리 시간이 초과되었습니다. 잠시 후 다시 시도해주세요."
+            )
         
         result = []
         for permission in permissions:
             # 권한 부여자 이름 조회
             granter = db.query(User).filter(User.id == permission.granted_by).first()
-            granted_by_name = granter.full_name if granter else str(permission.granted_by)
+            granted_by_name = granter.real_name if granter else str(permission.granted_by)
             
             # 권한 대상자 이름 조회
             grantee_name = None
             if permission.grantee_type == OwnerType.USER:
                 grantee = db.query(User).filter(User.id == permission.grantee_id).first()
-                grantee_name = grantee.full_name if grantee else permission.grantee_id
+                grantee_name = grantee.real_name if grantee else permission.grantee_id
             elif permission.grantee_type == OwnerType.GROUP:
                 grantee = db.query(Group).filter(Group.id == permission.grantee_id).first()
                 grantee_name = grantee.name if grantee else permission.grantee_id
@@ -413,7 +494,7 @@ async def grant_model_permission(
         # 응답 데이터 구성
         grantee_name = None
         if permission_data.grantee_type == OwnerType.USER:
-            grantee_name = grantee.full_name
+            grantee_name = grantee.real_name
         elif permission_data.grantee_type == OwnerType.GROUP:
             grantee_name = grantee.name
         
@@ -424,7 +505,7 @@ async def grant_model_permission(
             grantee_id=new_permission.grantee_id,
             grantee_name=grantee_name,
             granted_by=str(new_permission.granted_by),
-            granted_by_name=current_user.full_name,
+            granted_by_name=current_user.real_name,
             created_at=new_permission.created_at.isoformat(),
             updated_at=new_permission.updated_at.isoformat()
         )
@@ -499,7 +580,7 @@ async def get_permissions_matrix(
     """권한 매트릭스를 위한 모든 권한 정보 조회"""
     try:
         # 관리자 권한 확인
-        if not current_user.is_superuser:
+        if not current_user.is_admin:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="관리자 권한이 필요합니다"

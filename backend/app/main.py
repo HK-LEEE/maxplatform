@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 import logging
+from contextlib import asynccontextmanager
 
 # Initialize centralized logging configuration
 from .utils.logging_config import setup_logging
@@ -34,12 +35,12 @@ from .models.security_event import (
 
 # 모델 import 후에 database 모듈 import
 from .database import create_tables
-from .routers import auth, workspace, jupyter, files, llm, service, admin, chroma, llm_chat, oauth_admin, users, groups
+from .routers import auth, workspace, jupyter, files, llm, service, admin, chroma, llm_chat, oauth_admin, users, groups, batch_logout
 # from .llmops import router as llmops_router  # 임시 비활성화 (chromadb 의존성)
 # Flow Studio 라우터 추가
 from .routers import flow_studio
 # OAuth 2.0 라우터 추가
-from .api import oauth_simple, llm_models, security_events
+from .api import oauth_simple, oauth_compatibility, llm_models, security_events
 # Group Tree 라우터 추가
 from .routers import group_tree
 
@@ -53,13 +54,35 @@ setup_logging(
 # Get the main application logger
 main_logger = logging.getLogger("app.main")
 
+# Import background tasks
+from .tasks.key_rotation import init_key_rotation_task
+from .tasks.nonce_cleanup import init_nonce_cleanup_task
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
+    main_logger.info("Initializing background tasks...")
+    
+    # Initialize OIDC background tasks
+    init_key_rotation_task()
+    init_nonce_cleanup_task()
+    
+    main_logger.info("Background tasks initialized")
+    
+    yield
+    
+    # Shutdown
+    main_logger.info("Shutting down background tasks...")
+
 # FastAPI 앱 생성
 app = FastAPI(
     title="MAX API",
     description="Manufacturing Artificial Intelligence & DX Platform API",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 main_logger.info("MAX Platform backend API starting up")
@@ -115,7 +138,9 @@ app.include_router(chroma.router, tags=["ChromaDB"])
 # LLM Chat 라우터 추가
 app.include_router(llm_chat.router, tags=["LLM Chat"])
 # OAuth 2.0 라우터 추가
-app.include_router(oauth_simple.router, tags=["OAuth 2.0"])
+app.include_router(oauth_simple.router, prefix="/api/oauth", tags=["OAuth 2.0"])
+# OAuth compatibility router (for different logout URL patterns)
+app.include_router(oauth_compatibility.router, tags=["OAuth Compatibility"])
 # OAuth 2.0 관리 라우터 추가
 app.include_router(oauth_admin.router, tags=["OAuth Admin"])
 # LLM 모델 관리 라우터 추가
@@ -127,6 +152,9 @@ app.include_router(group_tree.router, tags=["Group Tree"])
 # 사용자 및 그룹 API 라우터 추가 (OAuth 표준 준수)
 app.include_router(users.router)
 app.include_router(groups.router)
+# 일괄 로그아웃 라우터 추가
+app.include_router(batch_logout.router, tags=["Batch Logout"])
+app.include_router(batch_logout.user_session_router, tags=["User Sessions"])
 
 # 정적 파일 서빙 (업로드된 파일용)
 if not os.path.exists("data"):
@@ -186,6 +214,71 @@ def oauth_metadata_root():
             "manage:apis",
             "manage:models"
         ]
+    }
+
+
+@app.get("/.well-known/openid-configuration")
+def openid_configuration_root():
+    """
+    OpenID Connect Discovery Endpoint (Root level)
+    Returns OIDC provider configuration
+    """
+    base_url = settings.oidc_issuer or settings.max_platform_api_url
+    
+    return {
+        "issuer": base_url,
+        "authorization_endpoint": f"{base_url}/api/oauth/authorize",
+        "token_endpoint": f"{base_url}/api/oauth/token",
+        "userinfo_endpoint": f"{base_url}/api/oauth/userinfo",
+        "jwks_uri": f"{base_url}/api/oauth/jwks",
+        "scopes_supported": [
+            # OIDC standard scopes
+            "openid", "profile", "email", "address", "phone", "offline_access",
+            # MAX Platform custom scopes
+            "read:profile", "read:features", "read:groups",
+            "manage:workflows", "manage:teams", "manage:experiments",
+            "manage:workspaces", "manage:apis", "manage:models",
+            "groups", "roles",  # Custom OIDC scopes
+            # Admin scopes
+            "admin:oauth", "admin:users", "admin:system"
+        ],
+        "response_types_supported": [
+            "code",
+            "id_token",
+            "token id_token",
+            "code id_token",
+            "code token",
+            "code token id_token"
+        ],
+        "response_modes_supported": ["query", "fragment", "form_post"],
+        "grant_types_supported": [
+            "authorization_code",
+            "implicit",
+            "refresh_token",
+            "client_credentials"
+        ],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256", "HS256"],
+        "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "client_secret_jwt",
+            "private_key_jwt"
+        ],
+        "claims_supported": settings.oidc_supported_claims,
+        "code_challenge_methods_supported": ["plain", "S256"],
+        "introspection_endpoint": f"{base_url}/api/oauth/introspect",
+        "revocation_endpoint": f"{base_url}/api/oauth/revoke",
+        "claim_types_supported": ["normal"],
+        "claims_parameter_supported": False,
+        "request_parameter_supported": False,
+        "request_uri_parameter_supported": False,
+        "require_request_uri_registration": False,
+        "check_session_iframe": f"{base_url}/api/oauth/check_session",
+        "end_session_endpoint": f"{base_url}/api/oauth/logout",
+        "acr_values_supported": ["0", "1"],
+        "display_values_supported": ["page", "popup"],
+        "prompt_values_supported": ["none", "login", "consent", "select_account"]
     }
 
 if __name__ == "__main__":

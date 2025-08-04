@@ -127,16 +127,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }
 
-  const logout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('refreshToken')
-    
-    // 쿠키에서도 토큰 제거
-    document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    
-    setToken(null)
-    setUser(null)
-    setIsAuthenticated(false)
+  const logout = async (forceSingleLogout: boolean = true) => {
+    try {
+      // 1. 로컬 토큰 정리
+      const currentToken = localStorage.getItem('token')
+      localStorage.removeItem('token')
+      localStorage.removeItem('refreshToken')
+      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+      
+      // 2. 상태 업데이트
+      setToken(null)
+      setUser(null)
+      setIsAuthenticated(false)
+      
+      // 3. Single Logout 수행 (OIDC End Session)
+      if (forceSingleLogout && currentToken) {
+        // OIDC End Session Endpoint로 리다이렉트
+        const logoutUrl = new URL(`${window.location.origin}/api/oauth/logout`)
+        logoutUrl.searchParams.append('post_logout_redirect_uri', `${window.location.origin}/login?logout=success`)
+        
+        // id_token_hint 추가 (있는 경우)
+        const idToken = localStorage.getItem('id_token')
+        if (idToken) {
+          logoutUrl.searchParams.append('id_token_hint', idToken)
+          localStorage.removeItem('id_token')
+        }
+        
+        // SSO Provider 로그아웃 수행
+        window.location.href = logoutUrl.toString()
+      } else {
+        // 로컬 로그아웃만 수행 (fallback)
+        window.location.href = '/login?logout=local'
+      }
+    } catch (error) {
+      console.error('Logout error:', error)
+      // 오류 시에도 로그인 페이지로 이동
+      window.location.href = '/login?logout=error'
+    }
   }
 
   const value: AuthContextType = {

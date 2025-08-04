@@ -522,7 +522,25 @@ async def logout(
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
-    """로그아웃 - Refresh Token 무효화"""
+    """
+    로그아웃 - Refresh Token 및 OAuth Access Token 무효화
+    
+    토큰 블랙리스트 처리:
+    1. JWT Refresh Token 무효화
+    2. OAuth Access Token 무효화
+    3. 관련 세션 종료
+    4. 로그아웃 이벤트 로깅
+    """
+    import hashlib
+    from sqlalchemy import text
+    
+    logout_stats = {
+        "refresh_tokens_revoked": 0,
+        "oauth_tokens_revoked": 0,
+        "sessions_terminated": 0
+    }
+    
+    # 1. JWT Refresh Token 무효화
     if refresh_token:
         # 특정 Refresh Token 무효화
         token_record = db.query(RefreshToken).filter(
@@ -532,16 +550,86 @@ async def logout(
         
         if token_record:
             token_record.revoke()
-            db.commit()
+            logout_stats["refresh_tokens_revoked"] = 1
     else:
         # 모든 Refresh Token 무효화
-        db.query(RefreshToken).filter(
+        result = db.query(RefreshToken).filter(
             RefreshToken.user_id == current_user.id,
             RefreshToken.is_active == True
         ).update({"is_active": False, "is_revoked": True})
-        db.commit()
+        logout_stats["refresh_tokens_revoked"] = result
     
-    return {"message": "성공적으로 로그아웃되었습니다."}
+    # 2. OAuth Access Token 블랙리스트 처리
+    # 현재 요청의 access token을 블랙리스트에 추가
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        access_token = auth_header.split(" ")[1]
+        token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+        
+        # OAuth access token 무효화
+        try:
+            result = db.execute(
+                text("""
+                    UPDATE oauth_access_tokens 
+                    SET revoked_at = NOW(),
+                        revocation_reason = 'user_logout'
+                    WHERE token_hash = :token_hash 
+                    AND user_id = :user_id
+                    AND revoked_at IS NULL
+                """),
+                {
+                    "token_hash": token_hash,
+                    "user_id": str(current_user.id)
+                }
+            )
+            logout_stats["oauth_tokens_revoked"] += result.rowcount
+        except Exception as e:
+            logger.warning(f"Failed to revoke OAuth token: {str(e)}")
+    
+    # 3. 사용자의 모든 OAuth 토큰 무효화 (옵션)
+    if not refresh_token:  # 모든 토큰 무효화 요청인 경우
+        try:
+            result = db.execute(
+                text("""
+                    UPDATE oauth_access_tokens 
+                    SET revoked_at = NOW(),
+                        revocation_reason = 'user_logout_all'
+                    WHERE user_id = :user_id 
+                    AND revoked_at IS NULL
+                """),
+                {"user_id": str(current_user.id)}
+            )
+            logout_stats["oauth_tokens_revoked"] += result.rowcount
+        except Exception as e:
+            logger.warning(f"Failed to revoke all OAuth tokens: {str(e)}")
+    
+    # 4. 로그아웃 이벤트 로깅
+    try:
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent", "")
+        
+        db.execute(
+            text("""
+                INSERT INTO oauth_audit_logs 
+                (event_type, client_id, user_id, success, ip_address, user_agent, details)
+                VALUES ('logout', NULL, :user_id, true, :ip_address, :user_agent, :details)
+            """),
+            {
+                "user_id": str(current_user.id),
+                "ip_address": client_ip,
+                "user_agent": user_agent,
+                "details": f"Logout stats: {logout_stats}"
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log logout event: {str(e)}")
+    
+    db.commit()
+    
+    return {
+        "message": "성공적으로 로그아웃되었습니다.",
+        "stats": logout_stats
+    }
 
 @router.post("/revoke-all-tokens")
 async def revoke_all_tokens(
@@ -549,17 +637,70 @@ async def revoke_all_tokens(
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
-    """모든 기기의 토큰 무효화"""
-    db.query(RefreshToken).filter(
+    """
+    모든 기기의 토큰 무효화
+    JWT Refresh Token과 OAuth Access Token 모두 블랙리스트 처리
+    """
+    from sqlalchemy import text
+    
+    revoke_stats = {
+        "refresh_tokens_revoked": 0,
+        "oauth_tokens_revoked": 0
+    }
+    
+    # 1. 모든 JWT Refresh Token 무효화
+    result = db.query(RefreshToken).filter(
         RefreshToken.user_id == current_user.id
     ).update({
         "is_active": False, 
         "is_revoked": True,
         "revoked_at": func.now()
     })
+    revoke_stats["refresh_tokens_revoked"] = result
+    
+    # 2. 모든 OAuth Access Token 무효화
+    try:
+        result = db.execute(
+            text("""
+                UPDATE oauth_access_tokens 
+                SET revoked_at = NOW(),
+                    revocation_reason = 'revoke_all_tokens'
+                WHERE user_id = :user_id 
+                AND revoked_at IS NULL
+            """),
+            {"user_id": str(current_user.id)}
+        )
+        revoke_stats["oauth_tokens_revoked"] = result.rowcount
+    except Exception as e:
+        logger.warning(f"Failed to revoke OAuth tokens: {str(e)}")
+    
+    # 3. 로그아웃 이벤트 로깅
+    try:
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent", "")
+        
+        db.execute(
+            text("""
+                INSERT INTO oauth_audit_logs 
+                (event_type, client_id, user_id, success, ip_address, user_agent, details)
+                VALUES ('revoke_all_tokens', NULL, :user_id, true, :ip_address, :user_agent, :details)
+            """),
+            {
+                "user_id": str(current_user.id),
+                "ip_address": client_ip,
+                "user_agent": user_agent,
+                "details": f"Revoked all tokens: {revoke_stats}"
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to log revoke event: {str(e)}")
+    
     db.commit()
     
-    return {"message": "모든 기기의 토큰이 무효화되었습니다."}
+    return {
+        "message": "모든 기기의 토큰이 무효화되었습니다.",
+        "stats": revoke_stats
+    }
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(

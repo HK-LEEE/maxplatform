@@ -36,7 +36,7 @@ export interface AuthContextType {
   token: string | null
   login: (email: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: (forceSingleLogout?: boolean) => Promise<void>
   isLoading: boolean
   isAuthenticated: boolean
 }

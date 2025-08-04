@@ -457,6 +457,40 @@ class LLMService:
         
         return models
 
+    async def _resolve_model_id(self, model_id: str) -> str:
+        """데이터베이스 모델 ID를 실제 모델명으로 해결"""
+        try:
+            # 이미 실제 모델명인 경우 (UUID 형식이 아닌 경우)
+            if not model_id.startswith("model_") and "-" not in model_id:
+                return model_id
+            
+            # 데이터베이스에서 모델 정보 조회
+            from ..models.llm_chat import MAXLLM_Model
+            from ..database import SessionLocal
+            
+            db = SessionLocal()
+            try:
+                # UUID 추출 (model_ prefix 제거)
+                uuid_part = model_id.replace("model_", "") if model_id.startswith("model_") else model_id
+                
+                model = db.query(MAXLLM_Model).filter(MAXLLM_Model.id == uuid_part).first()
+                
+                if model and model.is_active:
+                    # model_id 필드에 실제 모델명이 저장되어 있음
+                    actual_model_name = model.model_id
+                    logger.info(f"Model ID resolved: {model_id} -> {actual_model_name}")
+                    return actual_model_name
+                else:
+                    logger.warning(f"Model not found or inactive: {model_id}")
+                    return model_id  # 원본 반환
+                    
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Model ID resolution failed: {e}")
+            return model_id  # 실패시 원본 반환
+
     async def generate_response(self, messages: List[Dict[str, str]], model: str = None, 
                               stream: bool = False, **kwargs) -> Dict[str, Any]:
         """LLM 채팅을 위한 응답 생성 메서드"""
@@ -464,6 +498,9 @@ class LLMService:
             # 모델이 지정되지 않은 경우 기본 모델 사용
             if not model:
                 model = settings.azure_openai_deployment_name if self.azure_available else settings.ollama_default_model
+            
+            # 모델 ID 해결 - 데이터베이스 모델 ID인 경우 실제 모델명으로 변환
+            resolved_model = await self._resolve_model_id(model)
             
             # 메시지 형식 검증
             if not messages or not isinstance(messages, list):
@@ -503,12 +540,12 @@ class LLMService:
             
             # 모델 타입에 따라 적절한 API 호출
             result = None
-            if model.startswith("gpt-") or "azure" in model.lower():
+            if resolved_model.startswith("gpt-") or "azure" in resolved_model.lower():
                 # Azure OpenAI API 호출
-                result = await self._call_azure_api_chat(system_message, user_prompt, model)
+                result = await self._call_azure_api_chat(system_message, user_prompt, resolved_model)
             else:
                 # Ollama API 호출
-                result = await self._call_ollama_api_chat(system_message, user_prompt, model)
+                result = await self._call_ollama_api_chat(system_message, user_prompt, resolved_model)
             
             if not result:
                 raise Exception("LLM 응답 생성 실패")
@@ -516,7 +553,7 @@ class LLMService:
             return {
                 "content": result.get("response", ""),
                 "usage": result.get("usage", {}),
-                "model": model,
+                "model": resolved_model,
                 "provider": result.get("provider", "unknown")
             }
             

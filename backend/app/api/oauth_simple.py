@@ -21,10 +21,11 @@ from ..models import User, Group
 from ..config import settings
 from ..utils.auth import get_current_user_optional, get_current_user_silent, verify_password, create_access_token
 from ..utils.logging_config import get_oauth_logger, log_oauth_event, SecurityDataFilter
+from ..services.user_switch_security_service import user_switch_security_service
 
 logger = get_oauth_logger()
 
-router = APIRouter(prefix="/api/oauth", tags=["OAuth 2.0"])
+router = APIRouter()
 
 
 # Pydantic models
@@ -35,6 +36,7 @@ class TokenResponse(BaseModel):
     scope: str
     refresh_token: Optional[str] = None
     refresh_expires_in: Optional[int] = None
+    id_token: Optional[str] = None  # OIDC ID token
 
 
 class UserInfoResponse(BaseModel):
@@ -53,6 +55,24 @@ class UserInfoResponse(BaseModel):
 def generate_authorization_code() -> str:
     """Generate a secure random authorization code"""
     return secrets.token_urlsafe(32)
+
+
+def check_client_oidc_status(client_id: str, db: Session) -> bool:
+    """Check if client has OIDC enabled"""
+    try:
+        result = db.execute(
+            text("SELECT oidc_enabled FROM oauth_clients WHERE client_id = :client_id"),
+            {"client_id": client_id}
+        )
+        row = result.first()
+        if row and row[0] is not None:
+            return row[0]
+        # Default to dual mode if column doesn't exist or is null
+        return settings.oidc_dual_mode if hasattr(settings, 'oidc_dual_mode') else True
+    except Exception as e:
+        logger.debug(f"Could not check OIDC status for client {client_id}: {e}")
+        # Default to dual mode on error
+        return settings.oidc_dual_mode if hasattr(settings, 'oidc_dual_mode') else True
 
 
 def generate_token_hash(token: str) -> str:
@@ -537,8 +557,14 @@ def validate_client(
             'updated_at': client[12]
         }
         
-        # Check redirect URI
-        if redirect_uri not in client_dict['redirect_uris']:
+        # Check redirect URI (OAuth 표준에 따라 쿼리 파라미터가 포함된 URI도 허용)
+        from urllib.parse import urlparse
+        
+        redirect_base_uri = urlparse(redirect_uri)._replace(query='', fragment='').geturl()
+        registered_uris = [urlparse(uri)._replace(query='', fragment='').geturl() for uri in client_dict['redirect_uris']]
+        
+        if redirect_base_uri not in registered_uris:
+            logger.warning(f"Redirect URI validation failed - Requested: {redirect_uri}, Registered: {client_dict['redirect_uris']}")
             raise HTTPException(status_code=400, detail="Invalid redirect_uri")
         
         # For confidential clients, verify secret (only if secret is provided)
@@ -561,7 +587,9 @@ def create_authorization_code_record(
     scope: str,
     code_challenge: Optional[str],
     code_challenge_method: Optional[str],
-    db: Session
+    db: Session,
+    nonce: Optional[str] = None,
+    auth_time: Optional[datetime] = None
 ) -> str:
     """Create authorization code record in database"""
     try:
@@ -572,9 +600,9 @@ def create_authorization_code_record(
             text("""
                 INSERT INTO authorization_codes 
                 (code, client_id, user_id, redirect_uri, scope, code_challenge, 
-                 code_challenge_method, expires_at)
+                 code_challenge_method, expires_at, nonce, auth_time)
                 VALUES (:code, :client_id, :user_id, :redirect_uri, :scope, 
-                        :code_challenge, :code_challenge_method, :expires_at)
+                        :code_challenge, :code_challenge_method, :expires_at, :nonce, :auth_time)
             """),
             {
                 "code": code,
@@ -584,7 +612,9 @@ def create_authorization_code_record(
                 "scope": scope,
                 "code_challenge": code_challenge,
                 "code_challenge_method": code_challenge_method,
-                "expires_at": expires_at
+                "expires_at": expires_at,
+                "nonce": nonce,
+                "auth_time": auth_time or datetime.utcnow()
             }
         )
         db.commit()
@@ -653,6 +683,58 @@ def log_oauth_action(
         # Don't fail the main operation due to logging issues
 
 
+
+
+# OIDC Discovery Document
+@router.get("/.well-known/openid-configuration")
+def get_openid_configuration(request: Request):
+    """
+    OpenID Connect Discovery Document
+    Returns metadata about the OpenID Provider's configuration
+    """
+    base_url = str(request.base_url).rstrip('/')
+    
+    return {
+        "issuer": settings.oidc_issuer,
+        "authorization_endpoint": f"{base_url}/api/oauth/authorize",
+        "token_endpoint": f"{base_url}/api/oauth/token",
+        "userinfo_endpoint": f"{base_url}/api/oauth/userinfo",
+        "jwks_uri": f"{base_url}/api/oauth/.well-known/jwks.json",
+        "end_session_endpoint": f"{base_url}/api/oauth/logout",  # RP-Initiated Logout
+        "revocation_endpoint": f"{base_url}/api/oauth/revoke",
+        "introspection_endpoint": f"{base_url}/api/oauth/introspect",
+        
+        # Supported features
+        "response_types_supported": ["code", "code id_token"],
+        "response_modes_supported": ["query", "fragment"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256", "HS256"],
+        "scopes_supported": [
+            "openid", "profile", "email", "phone", "address", "offline_access",
+            "read:profile", "read:groups", "manage:workflows"
+        ],
+        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+        "claims_supported": settings.oidc_supported_claims,
+        "code_challenge_methods_supported": ["S256", "plain"],
+        
+        # Additional OIDC features
+        "request_parameter_supported": False,
+        "request_uri_parameter_supported": False,
+        "require_request_uri_registration": False,
+        "claims_parameter_supported": False,
+        
+        # Service documentation
+        "service_documentation": f"{base_url}/docs",
+        "ui_locales_supported": ["ko-KR", "en-US"],
+        
+        # Token configuration
+        "access_token_expires_in": settings.access_token_expire_minutes * 60,
+        "refresh_token_expires_in": settings.refresh_token_expire_days * 86400,
+        "id_token_expires_in": settings.oidc_id_token_expire_minutes * 60,
+    }
+
+
 # OAuth endpoints
 @router.get("/authorize")
 def authorize(
@@ -665,6 +747,12 @@ def authorize(
     code_challenge_method: Optional[str] = Query(None),
     display: Optional[str] = Query(None),  # popup 모드 감지용
     prompt: Optional[str] = Query(None),   # OpenID Connect prompt 파라미터
+    # OIDC-specific parameters
+    nonce: Optional[str] = Query(None),    # OIDC nonce for replay attack prevention
+    max_age: Optional[int] = Query(None),  # Maximum authentication age
+    id_token_hint: Optional[str] = Query(None),  # Previously issued ID token
+    login_hint: Optional[str] = Query(None),     # Hint about user's login identifier
+    acr_values: Optional[str] = Query(None),     # Authentication context class reference
     request: Request = None,
     current_user: Optional[User] = Depends(get_current_user_silent),
     db: Session = Depends(get_db)
@@ -724,7 +812,12 @@ def authorize(
                     "code_challenge": code_challenge,
                     "code_challenge_method": code_challenge_method,
                     "display": display,
-                    "prompt": prompt
+                    "prompt": prompt,
+                    "nonce": nonce,
+                    "max_age": max_age,
+                    "id_token_hint": id_token_hint,
+                    "login_hint": login_hint,
+                    "acr_values": acr_values
                 }
                 
                 # Remove None values
@@ -749,7 +842,12 @@ def authorize(
                 "code_challenge": code_challenge,
                 "code_challenge_method": code_challenge_method,
                 "display": display,
-                "prompt": prompt
+                "prompt": prompt,
+                "nonce": nonce,
+                "max_age": max_age,
+                "id_token_hint": id_token_hint,
+                "login_hint": login_hint,
+                "acr_values": acr_values
             }
             
             # Remove None values
@@ -767,17 +865,189 @@ def authorize(
             
             return RedirectResponse(url=login_url)
         
+        # prompt=login 처리: 강제로 재인증 요구
+        if prompt == "login":
+            logger.info(f"prompt=login: forcing re-authentication for client {client_id}")
+            
+            # 현재 사용자의 세션을 무효화 (User Switch Security 적용)
+            if current_user:
+                from ..services.user_switch_security_service import user_switch_security_service
+                
+                # 보안 정리 수행 (이전 사용자 토큰 정리)
+                cleanup_result = user_switch_security_service.force_previous_user_cleanup(
+                    client_id=client_id,
+                    previous_user_id=str(current_user.id),
+                    new_user_id=None,  # None instead of "pending" to avoid UUID type error
+                    reason="prompt_login",
+                    db=db
+                )
+                
+                logger.info(f"🔒 Security cleanup for prompt=login: {cleanup_result}")
+            
+            # OAuth 파라미터 준비
+            oauth_params = {
+                "response_type": response_type,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": scope,
+                "state": state,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+                "display": display,
+                "prompt": prompt,
+                "nonce": nonce,
+                "max_age": max_age,
+                "id_token_hint": id_token_hint,
+                "login_hint": login_hint,
+                "acr_values": acr_values
+            }
+            
+            # None 값 제거
+            oauth_params = {k: v for k, v in oauth_params.items() if v is not None}
+            
+            # OAuth 파라미터 인코딩
+            from urllib.parse import quote
+            import json
+            oauth_params_encoded = quote(json.dumps(oauth_params))
+            
+            # 로그인 페이지로 리다이렉트 (force_login 파라미터 추가)
+            login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}&force_login=true"
+            
+            logger.info(f"Redirecting to login page with force_login=true: {login_url}")
+            
+            log_oauth_action(
+                "authorize", client_id, str(current_user.id) if current_user else None, 
+                False, "prompt_login", "Force re-authentication requested",
+                request, db
+            )
+            
+            # 세션 쿠키 삭제하여 강제 재로그인
+            response = RedirectResponse(url=login_url)
+            response.delete_cookie("session_token")
+            response.delete_cookie("session_id")
+            response.delete_cookie("access_token")
+            
+            return response
+        
+        # prompt=select_account 처리: 계정 선택 화면 표시 (다른 사용자로 로그인)
+        if prompt == "select_account" or max_age == 0:
+            logger.info(f"prompt=select_account or max_age=0: forcing account selection for client {client_id}")
+            
+            # 현재 사용자의 세션을 무효화 (보안 정리) - 모든 플로우에서 실행
+            if current_user:
+                from ..services.user_switch_security_service import user_switch_security_service
+                
+                cleanup_result = user_switch_security_service.force_previous_user_cleanup(
+                    client_id=client_id,
+                    previous_user_id=str(current_user.id),
+                    new_user_id=None,  # None instead of "pending" to avoid UUID type error
+                    reason="select_account",
+                    db=db
+                )
+                
+                logger.info(f"🔒 Security cleanup for select_account: {cleanup_result}")
+            
+            # 모든 플로우에서 로그인 페이지로 리다이렉트 (force_login 파라미터 추가)
+            oauth_params = {
+                "response_type": response_type,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "scope": scope,
+                "state": state,
+                "code_challenge": code_challenge,
+                "code_challenge_method": code_challenge_method,
+                "display": display,
+                "prompt": "select_account",
+                "nonce": nonce,
+                "max_age": max_age,
+                "id_token_hint": id_token_hint,
+                "login_hint": login_hint,
+                "acr_values": acr_values
+            }
+            
+            oauth_params = {k: v for k, v in oauth_params.items() if v is not None}
+            from urllib.parse import quote
+            import json
+            oauth_params_encoded = quote(json.dumps(oauth_params))
+            
+            # force_login=true와 함께 로그인 페이지로 이동하여 현재 세션 무시하고 재로그인
+            login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}&force_login=true"
+            logger.info(f"Redirecting to account selection with force_login: {login_url}")
+            
+            # 세션 쿠키 삭제
+            response = RedirectResponse(url=login_url)
+            response.delete_cookie("session_token")
+            response.delete_cookie("session_id")
+            response.delete_cookie("access_token")
+            
+            return response
+        
         # prompt=none 처리: 사용자 상호작용 없이 즉시 authorization code 발급
         if prompt == "none":
             logger.info(f"prompt=none with authenticated user: immediately generating code for {current_user.email}")
             
+            # 🔒 SECURITY: Check for user switching even in prompt=none flow
+            client_ip = request.client.host if request.client else None
+            user_agent = request.headers.get("user-agent", "")
+            
+            try:
+                switch_detection = user_switch_security_service.detect_user_switch(
+                    client_id=client_id,
+                    new_user_id=str(current_user.id),
+                    request_ip=client_ip,
+                    db=db
+                )
+                
+                if switch_detection["is_user_switch"] and switch_detection["requires_cleanup"]:
+                    logger.warning(f"🔒 prompt=none User switch detected: {switch_detection['switch_type']} "
+                                 f"(risk: {switch_detection['risk_level']})")
+                    
+                    # Perform security cleanup
+                    cleanup_result = user_switch_security_service.force_previous_user_cleanup(
+                        client_id=client_id,
+                        previous_user_id=switch_detection["previous_user_id"],
+                        new_user_id=str(current_user.id),
+                        reason="user_switch_prompt_none",
+                        db=db
+                    )
+                    
+                    # Create audit trail
+                    user_switch_security_service.audit_user_switch(
+                        client_id=client_id,
+                        previous_user_id=switch_detection["previous_user_id"],
+                        new_user_id=str(current_user.id),
+                        switch_type=switch_detection["switch_type"],
+                        risk_level=switch_detection["risk_level"],
+                        risk_factors=switch_detection.get("risk_factors", []),
+                        request_ip=client_ip,
+                        user_agent=user_agent,
+                        cleanup_stats=cleanup_result.get("stats"),
+                        db=db
+                    )
+                    
+            except Exception as e:
+                logger.error(f"❌ prompt=none security check failed: {str(e)}")
+            
             # Parse requested scopes
             requested_scopes = scope.split() if scope else ["read:profile"]
+            
+            # Store nonce if provided (for OIDC)
+            if nonce:
+                from ..services.nonce_service import nonce_service
+                nonce_service.store_nonce(
+                    db=db,
+                    nonce=nonce,
+                    client_id=client_id,
+                    user_id=str(current_user.id),
+                    expires_in_minutes=10
+                )
             
             # Create authorization code immediately without consent checks
             code = create_authorization_code_record(
                 client_id, str(current_user.id), redirect_uri, scope,
-                code_challenge, code_challenge_method, db
+                code_challenge, code_challenge_method, db,
+                nonce=nonce,
+                auth_time=datetime.utcnow()
             )
             
             # Create or update OAuth session
@@ -805,16 +1075,19 @@ def authorize(
                         }
                     )
                 else:
-                    # Create new session
+                    # Create new session with IP and User-Agent tracking
                     db.execute(
                         text("""
-                            INSERT INTO oauth_sessions (user_id, client_id, granted_scopes, created_at, updated_at)
-                            VALUES (:user_id, :client_id, :scopes, :now, :now)
+                            INSERT INTO oauth_sessions 
+                            (user_id, client_id, granted_scopes, ip_address, user_agent, created_at, updated_at)
+                            VALUES (:user_id, :client_id, :scopes, :ip_address, :user_agent, :now, :now)
                         """),
                         {
                             "user_id": str(current_user.id),
                             "client_id": client_id,
                             "scopes": requested_scopes,
+                            "ip_address": client_ip,
+                            "user_agent": request.headers.get("User-Agent", ""),
                             "now": datetime.utcnow()
                         }
                     )
@@ -839,6 +1112,106 @@ def authorize(
             logger.info(f"prompt=none success: redirecting to {final_url}")
             return RedirectResponse(url=final_url)
         
+        # Check max_age requirement for OIDC
+        if max_age is not None:
+            # Check user's last authentication time
+            # In a real implementation, you would track the actual auth time
+            # For now, we'll require re-authentication if max_age is very small
+            if max_age < 60:  # Less than 1 minute
+                # Force re-authentication
+                logger.info(f"max_age {max_age} requires re-authentication")
+                if prompt != "none":
+                    # Redirect to login with max_age requirement
+                    oauth_params = {
+                        "response_type": response_type,
+                        "client_id": client_id,
+                        "redirect_uri": redirect_uri,
+                        "scope": scope,
+                        "state": state,
+                        "code_challenge": code_challenge,
+                        "code_challenge_method": code_challenge_method,
+                        "display": display,
+                        "prompt": "login",  # Force login
+                        "nonce": nonce,
+                        "max_age": max_age,
+                        "id_token_hint": id_token_hint,
+                        "login_hint": login_hint,
+                        "acr_values": acr_values
+                    }
+                    oauth_params = {k: v for k, v in oauth_params.items() if v is not None}
+                    from urllib.parse import quote
+                    import json
+                    oauth_params_encoded = quote(json.dumps(oauth_params))
+                    login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}"
+                    return RedirectResponse(url=login_url)
+        
+        # 🔒 SECURITY: Check for user switching and perform cleanup if needed
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent", "")
+        
+        try:
+            switch_detection = user_switch_security_service.detect_user_switch(
+                client_id=client_id,
+                new_user_id=str(current_user.id),
+                request_ip=client_ip,
+                db=db
+            )
+            
+            if switch_detection["is_user_switch"] and switch_detection["requires_cleanup"]:
+                logger.warning(f"🔒 User switch detected: {switch_detection['switch_type']} "
+                             f"(risk: {switch_detection['risk_level']})")
+                
+                # Perform security cleanup
+                cleanup_result = user_switch_security_service.force_previous_user_cleanup(
+                    client_id=client_id,
+                    previous_user_id=switch_detection["previous_user_id"],
+                    new_user_id=str(current_user.id),
+                    reason="user_switch_security",
+                    db=db
+                )
+                
+                # Create audit trail
+                user_switch_security_service.audit_user_switch(
+                    client_id=client_id,
+                    previous_user_id=switch_detection["previous_user_id"],
+                    new_user_id=str(current_user.id),
+                    switch_type=switch_detection["switch_type"],
+                    risk_level=switch_detection["risk_level"],
+                    risk_factors=switch_detection.get("risk_factors", []),
+                    request_ip=client_ip,
+                    user_agent=user_agent,
+                    cleanup_stats=cleanup_result.get("stats"),
+                    db=db
+                )
+                
+                # Log security event
+                # extra_data 파라미터 제거하여 함수 시그니처 오류 방지
+                log_oauth_event(
+                    event_type="user_switch_security_cleanup",
+                    client_id=client_id,
+                    user_id=str(current_user.id),
+                    success=cleanup_result["success"],
+                    ip_address=client_ip,
+                    user_agent=user_agent
+                )
+                
+                if not cleanup_result["success"]:
+                    logger.error(f"❌ Security cleanup failed for user switch: {cleanup_result.get('error')}")
+                    # Continue with flow but log the security concern
+                
+        except Exception as e:
+            logger.error(f"❌ User switch security check failed: {str(e)}")
+            # Continue with flow but log the security concern
+            log_oauth_event(
+                event_type="user_switch_security_error",
+                client_id=client_id,
+                user_id=str(current_user.id),
+                success=False,
+                error=str(e),
+                ip_address=client_ip,
+                user_agent=user_agent
+            )
+
         # Check existing OAuth session for auto-approval (normal flow)
         requested_scopes = scope.split() if scope else ["read:profile"]
         needs_consent = False
@@ -870,10 +1243,23 @@ def authorize(
             logger.warning(f"Session check failed: {e}")
             needs_consent = False  # Default to auto-approve for simplicity
         
-        # Create authorization code
+        # Store nonce if provided (for OIDC)
+        if nonce:
+            from ..services.nonce_service import nonce_service
+            nonce_service.store_nonce(
+                db=db,
+                nonce=nonce,
+                client_id=client_id,
+                user_id=str(current_user.id),
+                expires_in_minutes=10
+            )
+        
+        # Create authorization code with OIDC parameters
         code = create_authorization_code_record(
             client_id, str(current_user.id), redirect_uri, scope,
-            code_challenge, code_challenge_method, db
+            code_challenge, code_challenge_method, db,
+            nonce=nonce,
+            auth_time=datetime.utcnow()  # Record current authentication time
         )
         
         # Create or update OAuth session
@@ -900,17 +1286,19 @@ def authorize(
                     }
                 )
             else:
-                # Create new session
+                # Create new session with IP and User-Agent tracking
                 db.execute(
                     text("""
                         INSERT INTO oauth_sessions 
-                        (user_id, client_id, granted_scopes)
-                        VALUES (:user_id, :client_id, :granted_scopes)
+                        (user_id, client_id, granted_scopes, ip_address, user_agent, created_at, updated_at)
+                        VALUES (:user_id, :client_id, :granted_scopes, :ip_address, :user_agent, NOW(), NOW())
                     """),
                     {
                         "user_id": str(current_user.id),
                         "client_id": client_id,
-                        "granted_scopes": requested_scopes
+                        "granted_scopes": requested_scopes,
+                        "ip_address": client_ip,
+                        "user_agent": request.headers.get("User-Agent", "")
                     }
                 )
             
@@ -1289,14 +1677,45 @@ def handle_authorization_code_grant(
         db
     )
     
-    return TokenResponse(
-        access_token=access_token,
-        token_type="Bearer",
-        expires_in=settings.access_token_expire_minutes * 60,
-        scope=auth_code_dict['scope'] or "read:profile",
-        refresh_token=refresh_token,
-        refresh_expires_in=30 * 24 * 60 * 60  # 30 days in seconds
-    )
+    # Check if openid scope is requested for ID token generation
+    scopes = auth_code_dict['scope'].split() if auth_code_dict['scope'] else []
+    response_data = {
+        "access_token": access_token,
+        "token_type": "Bearer",
+        "expires_in": settings.access_token_expire_minutes * 60,
+        "scope": auth_code_dict['scope'] or "read:profile",
+        "refresh_token": refresh_token,
+        "refresh_expires_in": 30 * 24 * 60 * 60  # 30 days in seconds
+    }
+    
+    # Check if OIDC is enabled for this client
+    client_oidc_enabled = check_client_oidc_status(client_id, db)
+    
+    if "openid" in scopes and client_oidc_enabled:
+        # Import ID token service
+        from ..services.id_token_service import id_token_service
+        
+        # Get nonce and auth_time from authorization code
+        nonce = auth_code_dict.get('nonce')
+        auth_time = auth_code_dict.get('auth_time') or auth_code_dict.get('created_at', datetime.utcnow())
+        
+        # Create ID token
+        id_token = id_token_service.create_id_token(
+            user=user,
+            client_id=client_id,
+            nonce=nonce,
+            auth_time=auth_time,
+            scopes=scopes,
+            access_token=access_token,
+            authorization_code=code,
+            db=db
+        )
+        
+        response_data["id_token"] = id_token
+        logger.info(f"ID token generated for user {user.id} with client {client_id}")
+    
+    # Return extended response class that includes optional id_token
+    return response_data
 
 
 def handle_refresh_token_grant(
@@ -1367,14 +1786,39 @@ def handle_refresh_token_grant(
             None, None, request, db
         )
         
-        return TokenResponse(
-            access_token=new_access_token,
-            token_type="Bearer",
-            expires_in=settings.access_token_expire_minutes * 60,
-            scope=token_info['scope'],
-            refresh_token=new_refresh_token,
-            refresh_expires_in=30 * 24 * 60 * 60  # 30 days in seconds
-        )
+        # Check if openid scope is requested for ID token generation
+        scopes = token_info['scope'].split() if token_info['scope'] else []
+        response_data = {
+            "access_token": new_access_token,
+            "token_type": "Bearer",
+            "expires_in": settings.access_token_expire_minutes * 60,
+            "scope": token_info['scope'],
+            "refresh_token": new_refresh_token,
+            "refresh_expires_in": 30 * 24 * 60 * 60  # 30 days in seconds
+        }
+        
+        # Check if OIDC is enabled for this client
+        client_oidc_enabled = check_client_oidc_status(client_id, db)
+        
+        if "openid" in scopes and client_oidc_enabled:
+            # Import ID token service
+            from ..services.id_token_service import id_token_service
+            
+            # Get user for ID token
+            user = db.query(User).filter(User.id == token_info['user_id']).first()
+            if user:
+                # Create ID token for refresh (preserving original auth_time if available)
+                id_token = id_token_service.refresh_id_token(
+                    user=user,
+                    client_id=client_id,
+                    scopes=scopes,
+                    db=db,
+                    original_auth_time=token_info.get('auth_time')
+                )
+                response_data["id_token"] = id_token
+                logger.info(f"ID token refreshed for user {user.id} with client {client_id}")
+        
+        return TokenResponse(**response_data)
         
     except HTTPException:
         raise
@@ -1598,14 +2042,15 @@ def handle_client_credentials_grant(
         raise HTTPException(status_code=500, detail="Service token creation failed")
 
 
-@router.get("/userinfo", response_model=UserInfoResponse)
+@router.get("/userinfo")
 def userinfo(
+    request: Request,
     current_user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
-    OAuth 2.0 UserInfo Endpoint
-    Returns information about the authenticated user
+    OAuth 2.0 / OIDC UserInfo Endpoint
+    Returns information about the authenticated user based on granted scopes
     """
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1620,35 +2065,69 @@ def userinfo(
     if not user_with_relations:
         user_with_relations = current_user
     
-    # Prepare group information
-    groups = []
-    group_id = None
-    group_name = None
+    # Try to get scopes from access token
+    scopes = []
+    try:
+        # Get authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            # Decode token to get scopes (without verification since user is already authenticated)
+            from jose import jwt
+            payload = jwt.get_unverified_claims(token)
+            token_scopes = payload.get("scope", "")
+            scopes = token_scopes.split() if token_scopes else []
+    except Exception as e:
+        logger.debug(f"Could not extract scopes from token: {e}")
+        # Default scopes if can't extract from token
+        scopes = ["openid", "profile", "email"]
     
-    if user_with_relations.group:
-        groups.append(user_with_relations.group.name)
-        group_id = str(user_with_relations.group.id)
-        group_name = user_with_relations.group.name
-    
-    # Prepare role information
-    role_id = None
-    role_name = None
-    
-    if user_with_relations.role:
-        role_id = str(user_with_relations.role.id)
-        role_name = user_with_relations.role.name
-    
-    return UserInfoResponse(
-        sub=str(user_with_relations.id),
-        email=user_with_relations.email,
-        name=user_with_relations.display_name or user_with_relations.real_name or user_with_relations.email,
-        groups=groups,
-        is_admin=user_with_relations.is_admin,
-        group_id=group_id,
-        group_name=group_name,
-        role_id=role_id,
-        role_name=role_name
-    )
+    # Check if OIDC scopes are requested
+    if "openid" in scopes:
+        # Use claims service for OIDC-compliant response
+        from ..services.claims_service import claims_service
+        
+        # Get OIDC claims based on scopes
+        claims = claims_service.get_userinfo_response(
+            user=user_with_relations,
+            scopes=scopes,
+            db=db,
+            as_jwt=False  # Return as JSON by default
+        )
+        
+        # Return raw claims dictionary for OIDC compliance
+        return claims
+    else:
+        # Legacy OAuth 2.0 response for backward compatibility
+        # Prepare group information
+        groups = []
+        group_id = None
+        group_name = None
+        
+        if user_with_relations.group:
+            groups.append(user_with_relations.group.name)
+            group_id = str(user_with_relations.group.id)
+            group_name = user_with_relations.group.name
+        
+        # Prepare role information
+        role_id = None
+        role_name = None
+        
+        if user_with_relations.role:
+            role_id = str(user_with_relations.role.id)
+            role_name = user_with_relations.role.name
+        
+        return UserInfoResponse(
+            sub=str(user_with_relations.id),
+            email=user_with_relations.email,
+            name=user_with_relations.display_name or user_with_relations.real_name or user_with_relations.email,
+            groups=groups,
+            is_admin=user_with_relations.is_admin,
+            group_id=group_id,
+            group_name=group_name,
+            role_id=role_id,
+            role_name=role_name
+        )
 
 
 @router.options("/revoke")
@@ -1748,3 +2227,481 @@ def oauth_metadata():
             "admin:system"
         ]
     }
+
+
+@router.get("/.well-known/openid-configuration")
+def openid_configuration():
+    """
+    OpenID Connect Discovery Endpoint
+    Returns OIDC provider configuration
+    """
+    base_url = settings.oidc_issuer or settings.max_platform_api_url
+    
+    return {
+        "issuer": base_url,
+        "authorization_endpoint": f"{base_url}/api/oauth/authorize",
+        "token_endpoint": f"{base_url}/api/oauth/token",
+        "userinfo_endpoint": f"{base_url}/api/oauth/userinfo",
+        "jwks_uri": f"{base_url}/api/oauth/jwks",
+        "scopes_supported": [
+            # OIDC standard scopes
+            "openid", "profile", "email", "address", "phone", "offline_access",
+            # MAX Platform custom scopes
+            "read:profile", "read:features", "read:groups",
+            "manage:workflows", "manage:teams", "manage:experiments",
+            "manage:workspaces", "manage:apis", "manage:models",
+            "groups", "roles",  # Custom OIDC scopes
+            # Admin scopes
+            "admin:oauth", "admin:users", "admin:system"
+        ],
+        "response_types_supported": [
+            "code",
+            "id_token",
+            "token id_token",
+            "code id_token",
+            "code token",
+            "code token id_token"
+        ],
+        "response_modes_supported": ["query", "fragment", "form_post"],
+        "grant_types_supported": [
+            "authorization_code",
+            "implicit",
+            "refresh_token",
+            "client_credentials"
+        ],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256", "HS256"],
+        "token_endpoint_auth_methods_supported": [
+            "client_secret_post",
+            "client_secret_basic",
+            "client_secret_jwt",
+            "private_key_jwt"
+        ],
+        "claims_supported": settings.oidc_supported_claims,
+        "code_challenge_methods_supported": ["plain", "S256"],
+        "introspection_endpoint": f"{base_url}/api/oauth/introspect",
+        "revocation_endpoint": f"{base_url}/api/oauth/revoke",
+        "claim_types_supported": ["normal"],
+        "claims_parameter_supported": False,
+        "request_parameter_supported": False,
+        "request_uri_parameter_supported": False,
+        "require_request_uri_registration": False,
+        "check_session_iframe": f"{base_url}/api/oauth/check_session",
+        "end_session_endpoint": f"{base_url}/api/oauth/logout",
+        "acr_values_supported": ["0", "1"],
+        "display_values_supported": ["page", "popup"],
+        "prompt_values_supported": ["none", "login", "consent", "select_account"]
+    }
+
+
+@router.get("/jwks")
+def jwks(db: Session = Depends(get_db)):
+    """
+    JSON Web Key Set (JWKS) Endpoint
+    Returns public keys for ID token verification
+    """
+    from ..services.jwks_service import jwks_service
+    
+    try:
+        jwks_data = jwks_service.get_public_keys_jwks(db)
+        return jwks_data
+    except Exception as e:
+        logger.error(f"JWKS endpoint error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve JWKS"
+        )
+
+
+@router.get("/logout", response_class=RedirectResponse)
+async def oauth_logout(
+    request: Request,
+    post_logout_redirect_uri: Optional[str] = None,
+    client_id: Optional[str] = None,
+    id_token_hint: Optional[str] = None,
+    state: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    OIDC RP-Initiated Logout Endpoint (RFC)
+    
+    정석적인 OIDC 로그아웃 처리:
+    1. 현재 사용자 세션 확인
+    2. OAuth/OIDC 토큰 무효화 (Access + Refresh + ID tokens)
+    3. 사용자 세션 종료
+    4. 클라이언트별 세션 정리
+    5. 로그아웃 감사 로그
+    6. 안전한 리다이렉트
+    """
+    from sqlalchemy import text
+    from ..utils.auth import get_current_user_silent
+    
+    logout_stats = {
+        "access_tokens_revoked": 0,
+        "refresh_tokens_revoked": 0,
+        "sessions_terminated": 0,
+        "id_tokens_invalidated": 0
+    }
+    
+    # 1. 현재 사용자 확인 (토큰 기반 또는 세션 기반)
+    current_user = None
+    user_id_from_token = None
+    
+    # ID Token Hint에서 사용자 정보 추출
+    if id_token_hint:
+        try:
+            from jose import jwt
+            # ID Token 검증 없이 claims만 추출 (로그아웃용)
+            unverified_claims = jwt.get_unverified_claims(id_token_hint)
+            user_id_from_token = unverified_claims.get("sub")
+            logger.info(f"🔐 Logout: ID token hint provides user_id: {user_id_from_token}")
+        except Exception as e:
+            logger.warning(f"Failed to parse id_token_hint: {e}")
+    
+    # Authorization Header에서 사용자 확인
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            current_user = await get_current_user_silent(request=request, db=db)
+            if current_user:
+                logger.info(f"🔐 Logout: Current user from token: {current_user.email}")
+        except Exception as e:
+            logger.debug(f"No valid token in Authorization header: {e}")
+    
+    # 쿠키에서 액세스 토큰 확인 (많은 웹 앱에서 사용)
+    if not current_user:
+        try:
+            access_token_cookie = request.cookies.get("access_token")
+            if access_token_cookie:
+                # 쿠키의 액세스 토큰으로 사용자 확인
+                from ..utils.auth import get_current_user_from_token
+                current_user = get_current_user_from_token(access_token_cookie, db)
+                if current_user:
+                    logger.info(f"🔐 Logout: Current user from cookie: {current_user.email}")
+        except Exception as e:
+            logger.debug(f"No valid access token in cookies: {e}")
+    
+    # 클라이언트 ID가 있으면 해당 클라이언트의 모든 활성 세션을 무효화 (최후 수단)
+    if not current_user and not user_id_from_token and client_id:
+        logger.info(f"🔐 Logout: No user detected, attempting client-wide logout for {client_id}")
+        # 클라이언트별 전체 로그아웃 (보안상 주의 - 운영환경에서는 제한적으로 사용)
+        try:
+            # 해당 client_id의 모든 활성 토큰을 무효화
+            result = db.execute(
+                text("""
+                    UPDATE oauth_access_tokens 
+                    SET revoked_at = NOW(),
+                        revocation_reason = 'client_logout_fallback'
+                    WHERE client_id = :client_id 
+                    AND revoked_at IS NULL
+                """),
+                {"client_id": client_id}
+            )
+            logout_stats["access_tokens_revoked"] += result.rowcount
+            
+            # 해당 client_id의 모든 refresh 토큰 무효화
+            result = db.execute(
+                text("""
+                    UPDATE oauth_refresh_tokens 
+                    SET revoked_at = NOW(),
+                        token_status = 'revoked'
+                    WHERE client_id = :client_id 
+                    AND revoked_at IS NULL
+                """),
+                {"client_id": client_id}
+            )
+            logout_stats["refresh_tokens_revoked"] += result.rowcount
+            
+            # 해당 client_id의 모든 세션 삭제
+            result = db.execute(
+                text("""
+                    DELETE FROM oauth_sessions 
+                    WHERE client_id = :client_id
+                """),
+                {"client_id": client_id}
+            )
+            logout_stats["sessions_terminated"] += result.rowcount
+            
+            logger.info(f"🔐 Client-wide logout for {client_id}: {logout_stats}")
+            
+        except Exception as e:
+            logger.error(f"Failed client-wide logout: {str(e)}")
+        
+        # 클라이언트 로그아웃 처리 완료 후 바로 리다이렉트
+        try:
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to commit client logout: {str(e)}")
+            db.rollback()
+            
+        # 리다이렉트 준비
+        redirect_url = post_logout_redirect_uri or f"{settings.max_platform_frontend_url}/login?logout=success"
+        if state:
+            separator = "&" if "?" in redirect_url else "?"
+            redirect_url = f"{redirect_url}{separator}state={state}"
+        
+        logger.info(f"🔐 Client-wide logout completed: {logout_stats}")
+        logger.info(f"🔐 Redirecting to: {redirect_url}")
+        
+        # 쿠키 정리 및 리다이렉트
+        response = RedirectResponse(url=redirect_url, status_code=302)
+        
+        # 클라이언트 저장소 정리를 위한 헤더 추가
+        response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
+        response.headers["X-Logout-Complete"] = "true"
+        response.headers["X-Clear-Storage"] = "localStorage,sessionStorage,indexedDB"
+        
+        cookies_to_clear = [
+            "access_token", "refresh_token", "csrf_token", 
+            "session_token", "session_id", "auth_token",
+            "__Secure-access_token", "__Secure-refresh_token"
+        ]
+        
+        for cookie_name in cookies_to_clear:
+            response.delete_cookie(
+                cookie_name, 
+                path="/",
+                domain=None,
+                secure=False,
+                httponly=True,
+                samesite="lax"
+            )
+        
+        return response
+    
+    # 2. 토큰 무효화 (Access Tokens)
+    if current_user or user_id_from_token:
+        target_user_id = str(current_user.id) if current_user else user_id_from_token
+        
+        try:
+            # 현재 Access Token 무효화 (Authorization Header)
+            if auth_header.startswith("Bearer "):
+                access_token = auth_header.split(" ")[1]
+                token_hash = generate_token_hash(access_token)
+                
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout'
+                        WHERE token_hash = :token_hash 
+                        AND user_id = :user_id
+                        AND revoked_at IS NULL
+                    """),
+                    {
+                        "token_hash": token_hash,
+                        "user_id": target_user_id
+                    }
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+            
+            # 클라이언트별 토큰 무효화 (client_id 제공 시)
+            if client_id:
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout_client'
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                        AND revoked_at IS NULL
+                    """),
+                    {
+                        "user_id": target_user_id,
+                        "client_id": client_id
+                    }
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+            else:
+                # 모든 클라이언트의 토큰 무효화
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout_all'
+                        WHERE user_id = :user_id 
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+                
+        except Exception as e:
+            logger.error(f"Failed to revoke access tokens: {str(e)}")
+    
+    # 3. Refresh Token 무효화
+    if current_user or user_id_from_token:
+        target_user_id = str(current_user.id) if current_user else user_id_from_token
+        
+        try:
+            if client_id:
+                # 특정 클라이언트의 Refresh Token만 무효화
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_refresh_tokens 
+                        SET revoked_at = NOW(),
+                            token_status = 'revoked'
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                        AND revoked_at IS NULL
+                    """),
+                    {
+                        "user_id": target_user_id,
+                        "client_id": client_id
+                    }
+                )
+                logout_stats["refresh_tokens_revoked"] += result.rowcount
+            else:
+                # 모든 클라이언트의 Refresh Token 무효화
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_refresh_tokens 
+                        SET revoked_at = NOW(),
+                            token_status = 'revoked'
+                        WHERE user_id = :user_id 
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["refresh_tokens_revoked"] += result.rowcount
+                
+        except Exception as e:
+            logger.error(f"Failed to revoke refresh tokens: {str(e)}")
+    
+    # 4. OAuth 세션 종료
+    if current_user or user_id_from_token:
+        target_user_id = str(current_user.id) if current_user else user_id_from_token
+        
+        try:
+            if client_id:
+                # 특정 클라이언트 세션만 종료
+                result = db.execute(
+                    text("""
+                        DELETE FROM oauth_sessions 
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                    """),
+                    {
+                        "user_id": target_user_id,
+                        "client_id": client_id
+                    }
+                )
+                logout_stats["sessions_terminated"] += result.rowcount
+            else:
+                # 모든 OAuth 세션 종료
+                result = db.execute(
+                    text("""
+                        DELETE FROM oauth_sessions 
+                        WHERE user_id = :user_id
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["sessions_terminated"] += result.rowcount
+                
+        except Exception as e:
+            logger.error(f"Failed to terminate OAuth sessions: {str(e)}")
+    
+    # 5. JWT Refresh Token 무효화 (기존 auth 시스템과 연동)
+    if current_user:
+        try:
+            from ..models.refresh_token import RefreshToken
+            result = db.query(RefreshToken).filter(
+                RefreshToken.user_id == current_user.id,
+                RefreshToken.is_active == True
+            ).update({
+                "is_active": False,
+                "is_revoked": True
+            })
+            logout_stats["refresh_tokens_revoked"] += result
+            
+        except Exception as e:
+            logger.error(f"Failed to revoke JWT refresh tokens: {str(e)}")
+    
+    try:
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to commit logout transaction: {str(e)}")
+        db.rollback()
+    
+    # 6. 로그아웃 감사 로그
+    try:
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent", "")
+        
+        log_oauth_action(
+            action="oidc_logout",
+            client_id=client_id,
+            user_id=str(current_user.id) if current_user else user_id_from_token,
+            success=True,
+            error_code=None,
+            error_description=f"OIDC logout completed: {logout_stats}",
+            request=request,
+            db=db
+        )
+        
+    except Exception as e:
+        logger.warning(f"Failed to log logout event: {str(e)}")
+    
+    # 7. 안전한 리다이렉트 URL 준비
+    redirect_url = post_logout_redirect_uri or f"{settings.max_platform_frontend_url}/login?logout=success"
+    
+    # 기본 보안 검증 (domain whitelist 방식)
+    if post_logout_redirect_uri:
+        try:
+            from urllib.parse import urlparse
+            parsed_uri = urlparse(post_logout_redirect_uri)
+            
+            # 허용된 도메인 목록 (설정에서 가져오기)
+            allowed_domains = [
+                "localhost",
+                "127.0.0.1", 
+                "maxplatform.local",
+                urlparse(settings.max_platform_frontend_url).hostname
+            ]
+            
+            if parsed_uri.hostname not in allowed_domains:
+                logger.warning(f"🔒 Logout redirect to untrusted domain: {parsed_uri.hostname}")
+                redirect_url = f"{settings.max_platform_frontend_url}/login?logout=success&error=untrusted_domain"
+            else:
+                # 신뢰된 도메인이면 그대로 사용
+                redirect_url = post_logout_redirect_uri
+                logger.info(f"🔐 Logout redirect to trusted domain: {parsed_uri.hostname}")
+                
+        except Exception as e:
+            logger.error(f"Failed to parse logout redirect URI: {str(e)}")
+            redirect_url = f"{settings.max_platform_frontend_url}/login?logout=success&error=parse_error"
+    
+    # state 파라미터 추가
+    if state:
+        separator = "&" if "?" in redirect_url else "?"
+        redirect_url = f"{redirect_url}{separator}state={state}"
+    
+    logger.info(f"🔐 OIDC Logout completed: {logout_stats}")
+    logger.info(f"🔐 Redirecting to: {redirect_url}")
+    
+    # 8. 최종 응답 - 쿠키 정리 및 리다이렉트
+    response = RedirectResponse(url=redirect_url, status_code=302)
+    
+    # 클라이언트 저장소 정리를 위한 헤더 추가
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
+    response.headers["X-Logout-Complete"] = "true"
+    response.headers["X-Clear-Storage"] = "localStorage,sessionStorage,indexedDB"
+    
+    # 모든 인증 관련 쿠키 삭제
+    cookies_to_clear = [
+        "access_token", "refresh_token", "csrf_token", 
+        "session_token", "session_id", "auth_token",
+        "__Secure-access_token", "__Secure-refresh_token"
+    ]
+    
+    for cookie_name in cookies_to_clear:
+        response.delete_cookie(
+            cookie_name, 
+            path="/",
+            domain=None,  # 현재 도메인
+            secure=False,  # HTTPS 환경에서는 True로 설정
+            httponly=True,
+            samesite="lax"
+        )
+    
+    return response
