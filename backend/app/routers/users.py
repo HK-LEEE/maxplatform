@@ -61,6 +61,18 @@ class UserProfileResponse(BaseModel):
         from_attributes = True
 
 
+class UserProfileUpdate(BaseModel):
+    real_name: Optional[str] = None
+    display_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    department: Optional[str] = None
+    position: Optional[str] = None
+    bio: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
 def check_user_access_permission(requesting_user: User, target_user_id: str) -> bool:
     """
     사용자 정보 접근 권한 확인
@@ -372,3 +384,62 @@ def get_user_by_email(
     except Exception as e:
         logger.error(f"Error getting user by email: {str(e)}")
         raise HTTPException(status_code=500, detail="이메일로 사용자 조회 중 오류가 발생했습니다")
+
+
+@router.put("/me")
+def update_my_profile(
+    profile_data: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> UserProfileResponse:
+    """
+    현재 사용자 프로필 업데이트
+    - 사용자는 자신의 프로필만 수정 가능
+    - 이메일, 권한 등 중요 필드는 수정 불가
+    """
+    try:
+        # 업데이트할 필드만 처리
+        update_data = profile_data.dict(exclude_unset=True)
+        
+        if update_data:
+            for field, value in update_data.items():
+                setattr(current_user, field, value)
+            
+            db.commit()
+            db.refresh(current_user)
+            
+            logger.info(f"User {current_user.email} updated their profile: {list(update_data.keys())}")
+        
+        # 관계 데이터 로드
+        db.refresh(current_user)
+        user_with_relations = db.query(User).options(
+            joinedload(User.group),
+            joinedload(User.role)
+        ).filter(User.id == current_user.id).first()
+        
+        # 업데이트된 프로필 반환
+        return UserProfileResponse(
+            id=str(user_with_relations.id),
+            email=user_with_relations.email,
+            real_name=user_with_relations.real_name,
+            display_name=user_with_relations.display_name,
+            phone_number=user_with_relations.phone_number,
+            department=user_with_relations.department,
+            position=user_with_relations.position,
+            bio=user_with_relations.bio,
+            is_active=user_with_relations.is_active,
+            is_admin=user_with_relations.is_admin,
+            approval_status=user_with_relations.approval_status,
+            created_at=user_with_relations.created_at,
+            last_login_at=user_with_relations.last_login_at,
+            login_count=user_with_relations.login_count or 0,
+            group_id=str(user_with_relations.group.id) if user_with_relations.group else None,
+            group_name=user_with_relations.group.name if user_with_relations.group else None,
+            role_id=str(user_with_relations.role.id) if user_with_relations.role else None,
+            role_name=user_with_relations.role.name if user_with_relations.role else None
+        )
+        
+    except Exception as e:
+        logger.error(f"Error updating user profile: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="프로필 업데이트 중 오류가 발생했습니다")

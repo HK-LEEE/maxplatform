@@ -31,8 +31,10 @@ interface UserDetail {
   created_at: string;
   last_login_at: string | null;
   login_count: number;
-  role: any;
-  group: any;
+  role_id: string | null;
+  role_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
 }
 
 const ProfilePage: React.FC = () => {
@@ -68,35 +70,24 @@ const ProfilePage: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       
-      // 먼저 현재 사용자 정보 가져오기
-      const authResponse = await fetch('/api/auth/me', {
+      // 사용자 API로 프로필 정보 가져오기
+      const response = await fetch('/api/users/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (authResponse.ok) {
-        const currentUser = await authResponse.json();
-        
-        // 사용자 상세 정보 가져오기
-        const detailResponse = await fetch(`/api/admin/users/${currentUser.id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+      if (response.ok) {
+        const detail = await response.json();
+        setUserDetail(detail);
+        setEditedUserInfo({
+          real_name: detail.real_name || '',
+          display_name: detail.display_name || '',
+          phone_number: detail.phone_number || '',
+          department: detail.department || '',
+          position: detail.position || '',
+          bio: detail.bio || ''
         });
-
-        if (detailResponse.ok) {
-          const detail = await detailResponse.json();
-          setUserDetail(detail);
-          setEditedUserInfo({
-            real_name: detail.real_name || '',
-            display_name: detail.display_name || '',
-            phone_number: detail.phone_number || '',
-            department: detail.department || '',
-            position: detail.position || '',
-            bio: detail.bio || ''
-          });
-        }
       }
     } catch (error) {
       console.error('사용자 프로필 로드 실패:', error);
@@ -110,7 +101,7 @@ const ProfilePage: React.FC = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/users/${userDetail.id}`, {
+      const response = await fetch('/api/users/me', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -512,10 +503,10 @@ const ProfilePage: React.FC = () => {
                   <p className="text-gray-900">{userDetail.login_count}회</p>
                 </div>
 
-                {userDetail.group && (
+                {userDetail.group_name && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">그룹</label>
-                    <p className="text-gray-900">{userDetail.group.name}</p>
+                    <p className="text-gray-900">{userDetail.group_name}</p>
                   </div>
                 )}
               </div>

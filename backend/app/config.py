@@ -72,16 +72,16 @@ class Settings(BaseSettings):
 
     # Jupyter
     jupyter_base_url: str = os.getenv("JUPYTER_BASE_URL", "http://localhost")
-    jupyter_port_start: int = 8888
-    jupyter_port_end: int = 9100  # 포트 범위 확장 (8888-9100, 총 212개 포트)
+    jupyter_port_start: int = int(os.getenv("JUPYTER_PORT_START", "8888"))
+    jupyter_port_end: int = int(os.getenv("JUPYTER_PORT_END", "9100"))  # 포트 범위 확장 (8888-9100, 총 212개 포트)
     
     # 워크스페이스 설정
     data_dir: str = os.path.abspath(os.getenv("DATA_DIR", "./data"))
     users_dir: str = os.path.join(data_dir, "users")
     
     # 서버 설정
-    host: str = "0.0.0.0"
-    port: int = 8000
+    host: str = os.getenv("HOST", "0.0.0.0")
+    port: int = int(os.getenv("PORT", "8000"))
     
     # LLM 설정들
     # Azure OpenAI 설정
@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     default_llm_provider: str = os.getenv("DEFAULT_LLM_PROVIDER", "ollama")  # "azure" 또는 "ollama"
     max_tokens: int = int(os.getenv("MAX_TOKENS", "4000"))
     temperature: float = float(os.getenv("TEMPERATURE", "0.1"))
+    
+    # ChromaDB 설정
+    chroma_host: str = os.getenv("CHROMA_HOST", "localhost")
+    chroma_port: int = int(os.getenv("CHROMA_PORT", "8003"))
     
     # Jupyter AI 설정
     ai_default_provider: str = os.getenv("AI_DEFAULT_PROVIDER", "gpt4all")

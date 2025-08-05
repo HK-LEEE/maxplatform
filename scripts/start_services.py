@@ -10,6 +10,7 @@ import subprocess
 import platform
 import time
 from pathlib import Path
+from dotenv import load_dotenv
 
 class ServiceManager:
     def __init__(self):
@@ -17,6 +18,15 @@ class ServiceManager:
         self.is_windows = self.system == "Windows"
         self.is_mac = self.system == "Darwin"
         self.is_linux = self.system == "Linux"
+        
+        # Load environment variables
+        self.backend_dir = Path(__file__).parent.parent / "backend"
+        env_path = self.backend_dir / ".env"
+        load_dotenv(env_path)
+        
+        # Get ports from environment
+        self.backend_port = os.getenv("PORT", "8000")
+        self.frontend_port = "3000"  # Frontend port is usually fixed
         
         # 프로젝트 루트 디렉토리
         self.root_dir = Path(__file__).parent.parent
@@ -180,18 +190,18 @@ class ServiceManager:
             uvicorn_path = self.get_venv_path() / "uvicorn"
         
         # FastAPI 서버 시작
-        print("FastAPI 서버 시작 중... (http://localhost:8000)")
-        print("API 문서: http://localhost:8000/docs")
+        print(f"FastAPI 서버 시작 중... (http://localhost:{self.backend_port})")
+        print(f"API 문서: http://localhost:{self.backend_port}/docs")
         
         if self.is_windows:
             # Windows에서는 별도 창에서 실행
-            cmd = f'start "Backend Server" cmd /k "{uvicorn_path} app.main:app --reload --host 0.0.0.0 --port 8000"'
+            cmd = f'start "Backend Server" cmd /k "{uvicorn_path} app.main:app --reload --host 0.0.0.0 --port {self.backend_port}"'
             os.system(cmd)
         else:
             # Mac/Linux에서는 백그라운드에서 실행
             subprocess.Popen([
                 str(uvicorn_path), "app.main:app", 
-                "--reload", "--host", "0.0.0.0", "--port", "8000"
+                "--reload", "--host", "0.0.0.0", "--port", self.backend_port
             ], cwd=self.backend_dir)
         
         return True
@@ -204,7 +214,7 @@ class ServiceManager:
         if not self.install_frontend_dependencies():
             return False
         
-        print("개발 서버 시작 중... (http://localhost:3000)")
+        print(f"개발 서버 시작 중... (http://localhost:{self.frontend_port})")
         
         if self.is_windows:
             # Windows에서는 별도 창에서 실행
@@ -225,8 +235,8 @@ class ServiceManager:
         print()
         
         print("다음 서비스들이 시작됩니다:")
-        print("- 백엔드 API 서버 (포트 8000)")
-        print("- 프론트엔드 서버 (포트 3000)")
+        print(f"- 백엔드 API 서버 (포트 {self.backend_port})")
+        print(f"- 프론트엔드 서버 (포트 {self.frontend_port})")
         print()
         
         # 백엔드 서버 시작
@@ -248,8 +258,8 @@ class ServiceManager:
         print("=" * 50)
         print()
         print("접속 URL:")
-        print("- 웹 애플리케이션: http://localhost:3000")
-        print("- API 문서: http://localhost:8000/docs")
+        print(f"- 웹 애플리케이션: http://localhost:{self.frontend_port}")
+        print(f"- API 문서: http://localhost:{self.backend_port}/docs")
         print()
         
         return True

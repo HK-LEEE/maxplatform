@@ -7,9 +7,8 @@
 const defaultConfig = {
   // 공통 설정
   environment: 'development',
-  //apiBaseUrl: 'http://192.168.15.220:8000',
-  apiBaseUrl: 'https://max.dwchem.co.kr',
-  frontendUrl: 'https://max.dwchem.co.kr',
+  apiBaseUrl: 'http://localhost:8000',
+  frontendUrl: 'http://localhost:3000',
   
   // MAX Platform 서비스 URL
   maxFlowStudioUrl: 'http://localhost:3005',
@@ -30,7 +29,7 @@ const defaultConfig = {
   oauthScope: 'read:profile read:groups read:features',
   
   // 개발 설정
-  debugMode: true,
+  debugMode: false,
   apiTimeout: 30000,
 };
 

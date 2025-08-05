@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+from app.config import settings
 from dotenv import load_dotenv
 
 # 환경변수 로드
@@ -84,9 +85,9 @@ async def api_info():
     }
 
 if __name__ == "__main__":
-    # 환경변수에서 설정값 가져오기
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
+    # config에서 설정값 가져오기
+    host = settings.host
+    port = settings.port
     debug = os.getenv("DEBUG", "True").lower() == "true"
     
     uvicorn.run(
