@@ -111,6 +111,7 @@ app.add_middleware(
         settings.max_llm_url.replace("localhost", "127.0.0.1"),
         settings.max_apa_url.replace("localhost", "127.0.0.1"),
         settings.max_mlops_url.replace("localhost", "127.0.0.1"),
+        "http://192.168.15.220"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -190,7 +191,8 @@ def oauth_metadata_root():
     OAuth 2.0 Authorization Server Metadata (Root level)
     RFC 8414 compliant metadata endpoint
     """
-    base_url = f"http://localhost:8000"
+    #base_url = f"http://localhost:8000"
+    base_url = settings.MAX_PLATFORM_API_URL
     
     return {
         "issuer": base_url,
@@ -223,7 +225,9 @@ def openid_configuration_root():
     OpenID Connect Discovery Endpoint (Root level)
     Returns OIDC provider configuration
     """
-    base_url = settings.oidc_issuer or settings.max_platform_api_url
+
+    #base_url = settings.oidc_issuer or settings.max_platform_api_url
+    base_url = settings.MAX_PLATFORM_API_URL
     
     return {
         "issuer": base_url,

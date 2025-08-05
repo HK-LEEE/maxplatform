@@ -19,7 +19,7 @@ const GroupSelectionModal = ({ isOpen, onClose, onSelect }) => {
     setError('')
     
     try {
-      const response = await fetch(`${config.apiBaseUrl}/api/auth/available-groups`)
+      const response = await fetch(`/api/auth/available-groups`)
       if (response.ok) {
         const data = await response.json()
         setGroups(data)

@@ -67,10 +67,10 @@ const PermissionMatrix: React.FC = () => {
       const token = localStorage.getItem('token');
       
       const [usersRes, groupsRes, modelsRes, permissionsRes] = await Promise.all([
-        fetch('/admin/users', {
+        fetch('/api/admin/users', {
           headers: { Authorization: `Bearer ${token}` }
         }),
-        fetch('/admin/groups', {
+        fetch('/api/admin/groups', {
           headers: { Authorization: `Bearer ${token}` }
         }),
         fetch('/api/llm-models?accessible_only=false', {

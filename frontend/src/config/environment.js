@@ -7,8 +7,8 @@
 const defaultConfig = {
   // 공통 설정
   environment: 'development',
-  apiBaseUrl: 'http://localhost:8000',
-  frontendUrl: 'http://localhost:3000',
+  apiBaseUrl: 'http://192.168.15.220:8000',
+  frontendUrl: 'http://192.168.15.220:3010',
   
   // MAX Platform 서비스 URL
   maxFlowStudioUrl: 'http://localhost:3005',
@@ -121,7 +121,7 @@ export const utils = {
     const allParams = { ...defaultParams, ...params };
     const queryString = new URLSearchParams(allParams).toString();
     
-    return `${config.apiBaseUrl}/api/oauth/authorize?${queryString}`;
+    return `/api/oauth/authorize?${queryString}`;
   },
 
   /**

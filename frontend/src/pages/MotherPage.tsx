@@ -159,7 +159,7 @@ const MainPage: React.FC = () => {
       const token = localStorage.getItem('token');
       
       // 사용자 상세 정보 조회
-      const userResponse = await fetch(`/admin/users/${data.user_info.id}`, {
+      const userResponse = await fetch(`/api/admin/users/${data.user_info.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -181,7 +181,7 @@ const MainPage: React.FC = () => {
       }
       
       // 사용 가능한 그룹 목록 조회
-      const groupsResponse = await fetch('/admin/groups', {
+      const groupsResponse = await fetch('/api/admin/groups', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -227,7 +227,7 @@ const MainPage: React.FC = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/users/${userDetail.id}`, {
+      const response = await fetch(`/api/admin/users/${userDetail.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

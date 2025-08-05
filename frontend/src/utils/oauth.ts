@@ -184,7 +184,7 @@ export const exchangeCodeForToken = async (
     // Exchange code for token
     console.log(`🔄 Exchanging authorization code for token (client: ${client.client_id})`);
     
-    const response = await fetch(`${config.apiBaseUrl}/api/oauth/token`, {
+    const response = await fetch(`/api/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'

@@ -25,12 +25,39 @@ const RegisterPage = () => {
   const { register } = useAuth()
   const navigate = useNavigate()
 
+  // 휴대폰 번호 자동 하이픈 포맷팅 함수
+  const formatPhoneNumber = (value) => {
+    // 숫자 이외의 모든 문자를 제거합니다.
+    const phoneNumber = value.replace(/[^\d]/g, "");
+    const phoneNumberLength = phoneNumber.length;
+
+    // 길이에 따라 하이픈을 추가합니다.
+    if (phoneNumberLength < 4) return phoneNumber;
+    if (phoneNumberLength < 8) {
+      return `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3)}`;
+    }
+    // 11자리까지만 입력되도록 slice(0, 11)을 사용합니다.
+    return `${phoneNumber.slice(0, 3)}-${phoneNumber.slice(3, 7)}-${phoneNumber.slice(7, 11)}`;
+  };
+
+  // 입력 변경을 처리하는 핸들러 함수
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    })
-  }
+    const { name, value } = e.target;
+
+    // 'phone_number' 필드일 경우, 포맷팅된 값을 사용합니다.
+    if (name === 'phone_number') {
+      setFormData({
+        ...formData,
+        [name]: formatPhoneNumber(value),
+      });
+    } else {
+      // 다른 모든 필드는 기존 로직을 그대로 사용합니다.
+      setFormData({
+        ...formData,
+        [name]: value,
+      });
+    }
+  };
 
   const handleGroupSelect = (group) => {
     if (group) {
@@ -79,18 +106,19 @@ const RegisterPage = () => {
     }
 
     try {
+      // 서버로 보낼 때는 하이픈을 제거한 순수 숫자만 보내는 것이 좋습니다.
       const submitData = {
         real_name: formData.real_name,
         display_name: formData.display_name || formData.real_name,
         email: formData.email,
-        phone_number: formData.phone_number,
+        phone_number: formData.phone_number.replace(/-/g, ''), // 하이픈 제거
         password: formData.password,
         department: formData.department,
         position: formData.position,
         group_id: formData.group_id || null
       }
 
-      const response = await fetch(`${config.apiBaseUrl}/api/auth/register`, {
+      const response = await fetch(`/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -216,6 +244,7 @@ const RegisterPage = () => {
                     placeholder="010-1234-5678"
                     value={formData.phone_number}
                     onChange={handleChange}
+                    maxLength="13" 
                   />
                 </div>
 
@@ -361,7 +390,7 @@ const RegisterPage = () => {
         onSelect={handleGroupSelect}
       />
     </div>
-  )
+  ) 
 }
 
 export default RegisterPage

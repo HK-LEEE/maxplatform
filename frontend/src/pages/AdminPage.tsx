@@ -300,7 +300,7 @@ const AdminPage: React.FC = () => {
     try {
       console.log('그룹 상세 정보 로딩 시작:', groupId);
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/groups/${groupId}`, {
+      const response = await fetch(`/api/admin/groups/${groupId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -331,7 +331,8 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/users/${userId}`, {
+      //const response = await fetch(`/admin/users/${userId}`, {
+      const response = await fetch(`/api/admin/users/${userId}`, {
         method: 'DELETE',
         headers: { 
           Authorization: `Bearer ${token}`,
@@ -373,7 +374,8 @@ const AdminPage: React.FC = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/users/${selectedUser.id}`, {
+      //const response = await fetch(`/admin/users/${selectedUser.id}`, {
+      const response = await fetch(`/api/admin/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -403,7 +405,8 @@ const AdminPage: React.FC = () => {
   const updateUserStatus = async (userId: string, status: string, isActive: boolean) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/users/${userId}/status`, {
+      //const response = await fetch(`/admin/users/${userId}/status`, {
+      const response = await fetch(`/api/admin/users/${userId}/status`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -482,7 +485,8 @@ const AdminPage: React.FC = () => {
         
         // 그룹이 선택되었다면 그룹 할당
         if (newUserInfo.group_id) {
-          const groupResponse = await fetch('/admin/users/group', {
+          //const groupResponse = await fetch('/admin/users/group', {
+          const groupResponse = await fetch('/api/admin/users/group', {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${token}`,
@@ -665,7 +669,7 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/admin/users/change-password', {
+      const response = await fetch('/api/admin/users/change-password', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -744,7 +748,7 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const url = selectedGroup ? `/admin/groups/${selectedGroup.id}` : '/admin/groups';
+      const url = selectedGroup ? `/api/admin/groups/${selectedGroup.id}` : '/api/admin/groups';
       const method = selectedGroup ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -761,7 +765,7 @@ const AdminPage: React.FC = () => {
         
         // 기능 할당 업데이트
         if (selectedGroupFeatures.length > 0) {
-          await fetch('/admin/groups/features', {
+          await fetch('/api/admin/groups/features', {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${token}`,
@@ -802,7 +806,7 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/groups/${groupId}`, {
+      const response = await fetch(`/api/admin/groups/${groupId}`, {
         method: 'DELETE',
         headers: { 
           Authorization: `Bearer ${token}`,

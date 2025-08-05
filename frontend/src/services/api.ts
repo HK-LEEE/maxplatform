@@ -2,7 +2,7 @@ import axios from 'axios'
 import { User, Workspace, FileItem, JupyterStatus } from '../types'
 import config from '../config/environment'
 
-const API_BASE_URL = `${config.apiBaseUrl}/api`
+const API_BASE_URL = `/api`
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -65,6 +65,8 @@ api.interceptors.response.use(
           const response = await api.post('/auth/refresh', {
             refresh_token: refreshToken
           })
+          console.log("refresh token get")
+          console.log(response)
           
           const { access_token } = response.data
           localStorage.setItem('token', access_token)

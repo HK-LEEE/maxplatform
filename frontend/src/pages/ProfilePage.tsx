@@ -79,7 +79,7 @@ const ProfilePage: React.FC = () => {
         const currentUser = await authResponse.json();
         
         // 사용자 상세 정보 가져오기
-        const detailResponse = await fetch(`/admin/users/${currentUser.id}`, {
+        const detailResponse = await fetch(`/api/admin/users/${currentUser.id}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -110,7 +110,7 @@ const ProfilePage: React.FC = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/users/${userDetail.id}`, {
+      const response = await fetch(`/api/admin/users/${userDetail.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

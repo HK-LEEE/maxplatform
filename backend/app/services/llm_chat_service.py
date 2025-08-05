@@ -483,7 +483,7 @@ class LLMChatService:
                 "role": "user", 
                 "content": user_message
             })
-            
+            print(f"###### RAG CALL START ")
             # RAG 컨텍스트 추가
             rag_context = ""
             if rag_datasource_ids:
@@ -495,6 +495,7 @@ class LLMChatService:
                         "content": f"다음 정보를 참고하여 답변해주세요:\n\n{rag_context}"
                     })
             
+            print(f"###### RAG CALL FINISH ")
             # LLM 서비스 호출
             response = await llm_service.generate_response(
                 messages=chat_messages,
