@@ -11,21 +11,25 @@ class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", extra="allow")
     
     # 데이터베이스 타입 및 연결 설정
-    database_type: str = os.getenv("DATABASE_TYPE", "")  # postgresql, mysql, mssql
-    database_url: str = os.getenv("DATABASE_URL", "")
-    
+    database_type: str = os.getenv("DATABASE_TYPE", "postgresql")  # postgresql, mysql, mssql
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:2300@localhost:5432/platform_integration")
+    #database_url: str = os.getenv("DATABASE_URL", "postgresql://postgres:2300@172.28.32.1:5432/platform_integration")
+
+    # Legacy 호환성 - 기존 설정들은 유지
+    mysql_database_url: str = os.getenv("MYSQL_DATABASE_URL", "mysql+pymysql://test:test@localhost:3306/jupyter_platform")
+    mssql_database_url: str = os.getenv("MSSQL_DATABASE_URL", "mssql+pyodbc://sa:password@localhost:1433/jupyter_platform?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes")
     
     # Security & JWT Configuration
-    secret_key: str = os.getenv("SECRET_KEY", "")
-    algorithm: str = os.getenv("ALGORITHM", "")
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", ""))
-    refresh_token_expire_days: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", ""))
+    secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
+    algorithm: str = os.getenv("ALGORITHM", "HS256")
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    refresh_token_expire_days: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
     # Service Token Configuration
     service_token: str = os.getenv("SERVICE_TOKEN", "")
-    service_client_id: str = os.getenv("SERVICE_CLIENT_ID", "")
-    service_client_secret: str = os.getenv("SERVICE_CLIENT_SECRET", "")
-    service_token_expire_hours: int = int(os.getenv("SERVICE_TOKEN_EXPIRE_HOURS", ""))
+    service_client_id: str = os.getenv("SERVICE_CLIENT_ID", "maxplatform-service")
+    service_client_secret: str = os.getenv("SERVICE_CLIENT_SECRET", "service_maxplatform_2025_dev_secret")
+    service_token_expire_hours: int = int(os.getenv("SERVICE_TOKEN_EXPIRE_HOURS", "24"))
     
     # =================
     # MAX Platform URL 설정 (Production 배포용)
@@ -34,12 +38,12 @@ class Settings(BaseSettings):
     max_platform_environment: str = os.getenv("MAX_PLATFORM_ENVIRONMENT", "development")
     
     # 현재 서버 정보
-    max_platform_host: str = os.getenv("MAX_PLATFORM_HOST", "")
-    max_platform_port: int = int(os.getenv("MAX_PLATFORM_PORT", ""))
-    max_platform_api_url: str = os.getenv("MAX_PLATFORM_API_URL","" )
+    max_platform_host: str = os.getenv("MAX_PLATFORM_HOST", "0.0.0.0")
+    max_platform_port: int = int(os.getenv("MAX_PLATFORM_PORT", "8000"))
+    max_platform_api_url: str = os.getenv("MAX_PLATFORM_API_URL", "http://localhost:8000")
     
     # Frontend URL (OAuth 리다이렉트용)
-    max_platform_frontend_url: str = os.getenv("MAX_PLATFORM_FRONTEND_URL","" )
+    max_platform_frontend_url: str = os.getenv("MAX_PLATFORM_FRONTEND_URL", "http://localhost:3000")
     
     # MAX Platform 서비스 URL
     max_flowstudio_url: str = os.getenv("MAX_FLOWSTUDIO_URL", "http://localhost:3005")
@@ -87,7 +91,7 @@ class Settings(BaseSettings):
     azure_openai_deployment_name: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
     
     # Ollama 설정
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://192.168.9.74:11434")
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_default_model: str = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3.2")
     
     # LLM 일반 설정
