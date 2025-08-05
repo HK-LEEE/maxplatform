@@ -7,8 +7,9 @@
 const defaultConfig = {
   // 공통 설정
   environment: 'development',
-  apiBaseUrl: 'http://192.168.15.220:8000',
-  frontendUrl: 'http://192.168.15.220:3010',
+  //apiBaseUrl: 'http://192.168.15.220:8000',
+  apiBaseUrl: 'https://max.dwchem.co.kr',
+  frontendUrl: 'https://max.dwchem.co.kr',
   
   // MAX Platform 서비스 URL
   maxFlowStudioUrl: 'http://localhost:3005',

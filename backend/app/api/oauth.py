@@ -659,7 +659,8 @@ async def oauth_metadata():
     OAuth 2.0 Authorization Server Metadata
     Returns server capabilities and endpoints
     """
-    base_url = f"http://localhost:8000"
+    #base_url = f"http://localhost:8000"
+    base_url = settings.MAX_PLATFORM_API_URL
     
     return {
         "issuer": base_url,
