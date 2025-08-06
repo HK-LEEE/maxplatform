@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react'
 import { authApi } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
-import config from '../config/environment'
+import config, { utils } from '../config/environment'
 import toast from 'react-hot-toast'
 
 const LoginPage = () => {
@@ -72,7 +72,7 @@ const LoginPage = () => {
           
           if (isInPopup) {
             // 팝업 모드: 표준 OAuth 리다이렉트 방식
-            const authUrl = new URL(`/api/oauth/authorize`)
+            const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
             Object.keys(oauthParams).forEach(key => {
               if (oauthParams[key] !== null) {
                 authUrl.searchParams.append(key, oauthParams[key])
@@ -89,7 +89,7 @@ const LoginPage = () => {
             return
           } else {
             // 일반 창 모드: 기존 로직 유지
-            const authUrl = new URL(`/api/oauth/authorize`)
+            const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
             Object.keys(oauthParams).forEach(key => {
               if (oauthParams[key] !== null) {
                 authUrl.searchParams.append(key, oauthParams[key])
@@ -175,7 +175,7 @@ const LoginPage = () => {
           delete oauthParams.prompt
           delete oauthParams.max_age
           
-          const authUrl = new URL(`/api/oauth/authorize`)
+          const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
           
           Object.keys(oauthParams).forEach(key => {
             if (oauthParams[key] !== null && oauthParams[key] !== undefined) {
