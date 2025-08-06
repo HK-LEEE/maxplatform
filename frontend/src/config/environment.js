@@ -26,8 +26,8 @@ const defaultConfig = {
   
   // OAuth 설정
   oauthServerUrl: 'https://max.dwchem.co.kr',
-  oauthClientId: 'maxplatform',
-  oauthScope: 'read:profile read:groups read:features',
+  oauthClientId: 'maxlab',
+  oauthScope: 'openid profile email offline_access read:profile read:groups manage:workflows',
   
   // 개발 설정
   debugMode: false,

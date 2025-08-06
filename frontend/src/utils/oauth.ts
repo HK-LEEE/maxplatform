@@ -106,7 +106,14 @@ export const buildAuthorizationUrl = async (
 ): Promise<string> => {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const authState = state || generateState();
+  
+  // Generate state with origin information
+  const stateData = {
+    random: generateState(),
+    origin: window.location.origin,
+    timestamp: Date.now()
+  };
+  const authState = state || btoa(JSON.stringify(stateData));
   
   // Store PKCE parameters in sessionStorage for later use
   sessionStorage.setItem('oauth_code_verifier', codeVerifier);

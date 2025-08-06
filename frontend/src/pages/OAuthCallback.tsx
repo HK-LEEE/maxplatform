@@ -50,7 +50,32 @@ const OAuthCallback: React.FC = () => {
               timestamp: Date.now()
             };
             
-            const targetOrigin = window.opener.location.origin || '*';
+            // Extract the original service from state parameter
+            let targetOrigin = '*';
+            
+            try {
+              // Try to decode the state to get the original service URL
+              if (state) {
+                const stateData = JSON.parse(atob(state));
+                if (stateData.origin) {
+                  targetOrigin = stateData.origin;
+                  console.log('📍 Using origin from state (auth error):', targetOrigin);
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ Could not parse state for origin (auth error):', e);
+            }
+            
+            // Fallback: try to get from opener
+            if (targetOrigin === '*') {
+              try {
+                targetOrigin = window.opener.location.origin;
+              } catch (e) {
+                // Cross-origin access blocked, use wildcard
+                targetOrigin = '*';
+              }
+            }
+            
             window.opener.postMessage(errorData, targetOrigin);
             
             setTimeout(() => {
@@ -94,7 +119,41 @@ const OAuthCallback: React.FC = () => {
           console.log('📤 Sending OAuth success message to parent:', messageData);
           
           // Send to parent window with correct target origin
-          const targetOrigin = window.opener.location.origin || '*';
+          // Extract the original service from state parameter
+          let targetOrigin = '*';
+          
+          try {
+            // Try to decode the state to get the original service URL
+            const stateData = JSON.parse(atob(authState));
+            if (stateData.origin) {
+              targetOrigin = stateData.origin;
+              console.log('📍 Using origin from state:', targetOrigin);
+            } else if (window.location.hostname.includes('dwchem.co.kr')) {
+              // Fallback: For dwchem deployments, try to detect from opener
+              try {
+                targetOrigin = window.opener.location.origin;
+              } catch (e) {
+                // Cross-origin blocked, use a safe wildcard for dwchem domains
+                console.warn('⚠️ Could not access opener origin, using wildcard');
+                targetOrigin = '*';
+              }
+            } else {
+              // Development or other environments
+              try {
+                targetOrigin = window.opener.location.origin;
+              } catch (e) {
+                targetOrigin = '*';
+              }
+            }
+          } catch (e) {
+            // State parsing failed, try to get from opener
+            console.warn('⚠️ Could not parse state for origin:', e);
+            try {
+              targetOrigin = window.opener.location.origin;
+            } catch (err) {
+              targetOrigin = '*';
+            }
+          }
           console.log('📤 Sending to target origin:', targetOrigin);
           window.opener.postMessage(messageData, targetOrigin);
           
@@ -150,7 +209,35 @@ const OAuthCallback: React.FC = () => {
             timestamp: Date.now()
           };
           
-          const targetOrigin = window.opener.location.origin || '*';
+          // Extract the original service from state parameter or use fallback
+          let targetOrigin = '*';
+          
+          try {
+            // Try to get state from URL or sessionStorage
+            const urlParams = new URLSearchParams(window.location.search);
+            const authState = urlParams.get('state') || sessionStorage.getItem('oauth_state');
+            
+            if (authState) {
+              const stateData = JSON.parse(atob(authState));
+              if (stateData.origin) {
+                targetOrigin = stateData.origin;
+                console.log('📍 Using origin from state (error):', targetOrigin);
+              }
+            }
+          } catch (e) {
+            console.warn('⚠️ Could not parse state for origin (error):', e);
+          }
+          
+          // Fallback: try to get from opener
+          if (targetOrigin === '*') {
+            try {
+              targetOrigin = window.opener.location.origin;
+            } catch (e) {
+              // Cross-origin access blocked, use wildcard
+              targetOrigin = '*';
+            }
+          }
+          
           window.opener.postMessage(errorData, targetOrigin);
           
           setTimeout(() => {
