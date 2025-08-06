@@ -1,0 +1,90 @@
+
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: false, authLoading: true, oauthReturn: true, forceLogin: true, oauthProcessedRef: false }
+LoginPage.jsx:32:13
+🔒 force_login detected - showing login form LoginPage.jsx:48:15
+🔐 AuthContext initAuth 시작: 
+Object { hasToken: true }
+AuthContext.tsx:28:15
+📡 사용자 정보 로드 시작 AuthContext.tsx:52:19
+✅ 사용자 정보 로드 성공: 
+Object { id: "21a2aaa7-444a-4038-bda3-d8bf2c4ef162", real_name: "관리자", display_name: "admin", email: "admin@test.com", phone_number: "010-1234-5678", department: "관리부", position: "시스템 관리자", is_active: true, is_admin: true, is_verified: true, … }
+​
+created_at: "2025-06-19T16:50:56.017084"
+​
+department: "관리부"
+​
+display_name: "admin"
+​
+email: "admin@test.com"
+​
+groups: Array []
+​
+id: "21a2aaa7-444a-4038-bda3-d8bf2c4ef162"
+​
+is_active: true
+​
+is_admin: true
+​
+is_verified: true
+​
+last_login_at: "2025-08-06T09:08:05.685862"
+​
+login_count: 316
+​
+phone_number: "010-1234-5678"
+​
+position: "시스템 관리자"
+​
+real_name: "관리자"
+​
+roles: Array []
+​
+<prototype>: Object { … }
+AuthContext.tsx:60:19
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: true, authLoading: false, oauthReturn: true, forceLogin: true, oauthProcessedRef: false }
+LoginPage.jsx:32:13
+✅ User authenticated, checking OAuth return... LoginPage.jsx:54:15
+🔄 OAuth return processing: 
+Object { isInPopup: true, oauthParams: {…} }
+LoginPage.jsx:63:19
+OAuth return parameter parsing error: TypeError: URL constructor: /api/oauth/authorize is not a valid URL.
+    Z4 LoginPage.jsx:75
+    React 3
+    C scheduler.production.min.js:13
+    D scheduler.production.min.js:14
+LoginPage.jsx:103:19
+    Z4 LoginPage.jsx:103
+    React 3
+    C scheduler.production.min.js:13
+    D scheduler.production.min.js:14
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: true, authLoading: false, oauthReturn: false, forceLogin: true, oauthProcessedRef: true }
+LoginPage.jsx:32:13
+⏭️ OAuth already processed, skipping... LoginPage.jsx:42:15
+🔐 AuthContext initAuth 시작: 
+Object { hasToken: true }
+AuthContext.tsx:28:15
+📡 사용자 정보 로드 시작 AuthContext.tsx:52:19
+✅ 사용자 정보 로드 성공: 
+Object { id: "21a2aaa7-444a-4038-bda3-d8bf2c4ef162", real_name: "관리자", display_name: "admin", email: "admin@test.com", phone_number: "010-1234-5678", department: "관리부", position: "시스템 관리자", is_active: true, is_admin: true, is_verified: true, … }
+AuthContext.tsx:60:19
+
+​
+
+
+
+
+
+
+OAuth return parameter parsing error: TypeError: URL constructor: /api/oauth/authorize is not a valid URL.
+    Z4 LoginPage.jsx:75
+    React 3
+    C scheduler.production.min.js:13
+    D scheduler.production.min.js:14
+LoginPage.jsx:103:19
+    Z4 LoginPage.jsx:103
+    React 3
+    C scheduler.production.min.js:13
+    D scheduler.production.min.js:14
