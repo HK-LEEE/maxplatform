@@ -123,7 +123,15 @@ export const buildAuthorizationUrl = async (
     code_challenge_method: 'S256'
   });
   
-  const authServer = config.apiBaseUrl; // MAX Platform OAuth server
+  // Determine OAuth server URL based on current domain
+  let authServer = config.apiBaseUrl;
+  
+  // Handle same-origin OAuth for specific deployments to avoid CORS issues
+  if (window.location.hostname.includes('dwchem.co.kr')) {
+    // For dwchem deployments, use same domain for OAuth to avoid cross-origin issues
+    authServer = window.location.origin;
+  }
+  
   return `${authServer}/api/oauth/authorize?${params.toString()}`;
 };
 
