@@ -1,78 +1,23 @@
-Layout was forced before the page was fully loaded. If stylesheets are not yet loaded this may cause a flash of unstyled content. node.js:417:1
-🔄 Rehydrating auth state for initialization 
-Object { state: {…} }
-index-cMDFwych.js:228:3201
-🆕 New or unauthenticated user, preparing for silent auth attempt index-cMDFwych.js:228:3948
-🛡️ New CSRF token generated index-cMDFwych.js:262:6222
-🛡️ CSRF protection initialized with new token index-cMDFwych.js:262:5768
-WEBGL_debug_renderer_info is deprecated in Firefox and will be removed. Please use RENDERER. index-cMDFwych.js:262:20427
-✅ Auth sync initialized with BroadcastChannel index-cMDFwych.js:262:84110
-🔄 Auth state change: idle → silent_auth 
-Object { isAuthenticated: false, hasUser: false, stackTrace: (3) […] }
-index-cMDFwych.js:227:3352
-🔇 Attempting silent SSO login... index-cMDFwych.js:262:89795
-🚫 Unsafe path for token refresh: /login index-cMDFwych.js:257:17983
-🚫 Silent auth not allowed on current page: /login index-cMDFwych.js:257:16004
-ℹ️ Silent SSO login failed: Cannot attempt silent auth on current page index-cMDFwych.js:262:91379
-🔄 Auth state change: silent_auth → ready 
-Object { isAuthenticated: false, hasUser: false, stackTrace: (3) […] }
-index-cMDFwych.js:227:3352
-🚫 Unsafe path for token refresh: /login index-cMDFwych.js:257:17983
-🔥 Login component render - current state: 
-Object { isAuthenticated: false, oauthLoading: false, silentLoginAttempting: false, hasLoggedOutRef: false, authAttemptRef: false }
-index-cMDFwych.js:752:4401
-🛑 User not authenticated, stopping token refresh index-cMDFwych.js:262:103220
-🔥 Component mounted, current oauthLoading: false index-cMDFwych.js:752:4989
-🔥 Login component render - current state: 
-Object { isAuthenticated: false, oauthLoading: false, silentLoginAttempting: true, hasLoggedOutRef: false, authAttemptRef: true }
-index-cMDFwych.js:752:4401
-🔄 Logout detected, resetting login component state index-cMDFwych.js:752:5395
-🔥 Login component render - current state: 
-Object { isAuthenticated: false, oauthLoading: false, silentLoginAttempting: false, hasLoggedOutRef: true, authAttemptRef: false }
-index-cMDFwych.js:752:4401
-🚫 Force account selection detected, skipping silent login index-cMDFwych.js:752:5850
-🔥 Login component render - current state: 
-Object { isAuthenticated: false, oauthLoading: false, silentLoginAttempting: false, hasLoggedOutRef: true, authAttemptRef: false }
-index-cMDFwych.js:752:4401
-🔥 handleOAuthLogin called with forceAccountSelection: false index-cMDFwych.js:752:6765
-🔥 Current oauthLoading state: false index-cMDFwych.js:752:6837
-🔥 Current isAuthenticated state: false index-cMDFwych.js:752:6885
-🔥 Setting oauthLoading to true index-cMDFwych.js:752:7091
-🚀 About to call loginWithPopupOAuth with forceAccountSelection: false index-cMDFwych.js:752:10735
-📊 Current state: 
-Object { isAuthenticated: false, oauthLoading: false, hasAccessToken: false, hasUser: false, forceAccountSelectionFlag: "true" }
-index-cMDFwych.js:752:10817
-🔥 About to call authService.loginWithPopupOAuth index-cMDFwych.js:752:11275
-🔥 authService object: 
-Object { loginWithPopupOAuth: async loginWithPopupOAuth(e), attemptSilentLogin: async attemptSilentLogin(), getCurrentUser: async getCurrentUser(), validateToken: async validateToken(), logout: async logout(e), _secureCleanup: async _secureCleanup(), isAuthenticated: isAuthenticated(), getStoredUser: getStoredUser(), redirectToSignup: redirectToSignup(), refreshToken: async refreshToken(e), … }
-index-cMDFwych.js:752:11339
-🔥 forceAccountSelection: false index-cMDFwych.js:752:11380
-🔐 OAuth Configuration: 
-Object { clientId: "maxlab", redirectUri: "https://maxlab.dwchem.co.kr/oauth/callback", authUrl: "https://max.dwchem.co.kr", envAuthUrl: "https://max.dwchem.co.kr", currentOrigin: "https://maxlab.dwchem.co.kr" }
-index-cMDFwych.js:228:20660
-🔐 Starting popup OAuth login (force account selection: false)... index-cMDFwych.js:262:86356
-🔥 Login component render - current state: 
-Object { isAuthenticated: false, oauthLoading: true, silentLoginAttempting: false, hasLoggedOutRef: true, authAttemptRef: false }
-index-cMDFwych.js:752:4401
-🔐 OAuth flow state created: 
-Object { flowId: "mdzs163jav0k3jxh5p", flowType: "popup", expiresIn: "900s", forceAccountSelection: false }
-index-cMDFwych.js:228:12030
-🔄 OAuth flow status updated: 
-Object { flowId: "mdzs163jav0k3jxh5p", status: "in_progress", flowType: "popup" }
-index-cMDFwych.js:228:14630
-🔐 OAuth Flow State Created: 
-Object { flowId: "mdzs163jav0k3jxh5p", flowType: "popup", state: "qaF_Zpty...", codeVerifier: "P9tRBw8x...", nonce: "ciavl8kl...", forceAccountSelection: false, expiresAt: "2025-08-06T09:54:40.447Z", timestamp: "2025-08-06T09:39:40.447Z" }
-index-cMDFwych.js:228:22943
-🔐 Opening OAuth popup: https://max.dwchem.co.kr/api/oauth/authorize?response_type=code&client_id=maxlab&redirect_uri=https%3A%2F%2Fmaxlab.dwchem.co.kr%2Foauth%2Fcallback&scope=openid+profile+email+offline_access+read%3Aprofile+read%3Agroups+manage%3Aworkflows&state=qaF_Zpty1jT7ZXSMPNGbfVfULu3YdXj-Hx6ZBMVplzs&code_challenge=W0A2PCMSduHNCU4Df8I9WKJiTX1D4f4L1R2QbycgBOs&code_challenge_method=S256&nonce=ciavl8kl0gacMTK7nhUg3GhxCqp13t_4fkvKXyT2D9E index-cMDFwych.js:228:24242
-📋 Full OAuth URL params: response_type=code&client_id=maxlab&redirect_uri=https%3A%2F%2Fmaxlab.dwchem.co.kr%2Foauth%2Fcallback&scope=openid+profile+email+offline_access+read%3Aprofile+read%3Agroups+manage%3Aworkflows&state=qaF_Zpty1jT7ZXSMPNGbfVfULu3YdXj-Hx6ZBMVplzs&code_challenge=W0A2PCMSduHNCU4Df8I9WKJiTX1D4f4L1R2QbycgBOs&code_challenge_method=S256&nonce=ciavl8kl0gacMTK7nhUg3GhxCqp13t_4fkvKXyT2D9E index-cMDFwych.js:228:24283
-📡 Setting up message listeners before popup... index-cMDFwych.js:228:24337
-✅ OAuth popup opened successfully index-cMDFwych.js:233:153
-🚨 Cross-origin access blocked - possible port mismatch after 3+ seconds warn 9 index-cMDFwych.js:233:977
-🔍 Triggering proactive recovery (cross-origin detected) after 7107ms... index-cMDFwych.js:233:1101
-🔍 OAuth completion detection analysis: 
-Object { standardKeys: [], dynamicKeys: [], suspiciousNewKeys: [], hasOAuthParams: false, localStorageKeys: [], totalDetected: false }
-index-cMDFwych.js:233:2590
-🚨 Cross-origin suspected but no OAuth data found, trying recovery... 
-Object { popupAge: 7107, suspectedPortMismatch: true }
-index-cMDFwych.js:233:3621
-🔄 Attempting cross-origin OAuth recovery (attempt 1/3) index-cMDFwych.js:228:5887
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: true, authLoading: false, oauthReturn: true, forceLogin: false, oauthProcessedRef: false }
+index-B9L5Y5MU.js:715:971
+✅ User authenticated, checking OAuth return... index-B9L5Y5MU.js:715:1270
+🔄 OAuth return processing: 
+Object { isInPopup: true, oauthParams: {…} }
+index-B9L5Y5MU.js:715:1403
+🚀 Popup redirecting to OAuth URL: https://api.maxplatform.com/api/oauth/authorize?response_type=code&client_id=maxlab&redirect_uri=https%3A%2F%2Fmaxlab.dwchem.co.kr%2Foauth%2Fcallback&scope=openid+profile+email+offline_access+read%3Aprofile+read%3Agroups+manage%3Aworkflows&state=YhP8-bXKjJAYjRzBgwKHdhRvUU9ErbVfeleakfVBfb4&code_challenge=ijidxkNt1lwkl4P5JBG_fdZe-_om2wxPdQqs3LLFofQ&code_challenge_method=S256&nonce=_Zv0lXKRU8EWfut7d-2yxzFnyIOSnSMyyCd2NzYy_6w index-B9L5Y5MU.js:715:1714
+❌ 인증 초기화 실패: 
+Object { message: "Request aborted", name: "AxiosError", code: "ECONNABORTED", config: {…}, request: XMLHttpRequest, stack: "", … }
+index-B9L5Y5MU.js:539:65389
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: true, authLoading: false, oauthReturn: false, forceLogin: false, oauthProcessedRef: true }
+index-B9L5Y5MU.js:715:971
+⏭️ OAuth already processed, skipping... index-B9L5Y5MU.js:715:1118
+🔍 OAuth useEffect triggered: 
+Object { isAuthenticated: false, authLoading: false, oauthReturn: false, forceLogin: false, oauthProcessedRef: true }
+index-B9L5Y5MU.js:715:971
+⏭️ OAuth already processed, skipping... index-B9L5Y5MU.js:715:1118
+🔐 AuthContext initAuth 시작: 
+Object { hasToken: false }
+index-B9L5Y5MU.js:539:64682
+❌ 토큰이 없어 인증되지 않은 상태 index-B9L5Y5MU.js:539:65339
