@@ -50,7 +50,8 @@ const OAuthCallback: React.FC = () => {
               timestamp: Date.now()
             };
             
-            window.opener.postMessage(errorData, window.location.origin);
+            const targetOrigin = window.opener.location.origin || '*';
+            window.opener.postMessage(errorData, targetOrigin);
             
             setTimeout(() => {
               console.log('🚪 Closing popup after error...');
@@ -92,8 +93,10 @@ const OAuthCallback: React.FC = () => {
           
           console.log('📤 Sending OAuth success message to parent:', messageData);
           
-          // Send to parent window
-          window.opener.postMessage(messageData, window.location.origin);
+          // Send to parent window with correct target origin
+          const targetOrigin = window.opener.location.origin || '*';
+          console.log('📤 Sending to target origin:', targetOrigin);
+          window.opener.postMessage(messageData, targetOrigin);
           
           // Close popup after sending message
           setTimeout(() => {
@@ -147,7 +150,8 @@ const OAuthCallback: React.FC = () => {
             timestamp: Date.now()
           };
           
-          window.opener.postMessage(errorData, window.location.origin);
+          const targetOrigin = window.opener.location.origin || '*';
+          window.opener.postMessage(errorData, targetOrigin);
           
           setTimeout(() => {
             console.log('🚪 Closing OAuth popup after error...');

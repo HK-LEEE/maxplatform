@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import FeatureLogo from '../components/common/FeatureLogo';
 import MiniLLMChat from '../components/chat/MiniLLMChat';
+import OAuthTestButton from '../components/OAuthTestButton';
 import { servicesApi } from '../services/api';
 import { initiateOAuthFlow, isOAuthSupportedPlatform } from '../utils/oauth';
 
@@ -489,6 +490,13 @@ const DashboardPage: React.FC = () => {
             )}
           </div>
         </>
+      )}
+
+      {/* OAuth 테스트 (개발 전용) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-20 left-4 z-40">
+          <OAuthTestButton />
+        </div>
       )}
 
       {/* 미니 LLM 채팅 */}

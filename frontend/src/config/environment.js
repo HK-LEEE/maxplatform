@@ -25,12 +25,8 @@ const defaultConfig = {
   jupyterBaseUrl: 'http://localhost',
   
   // OAuth 설정
-<<<<<<< HEAD
-  oauthServerUrl: 'http://localhost:8000',
-  oauthClientId: 'maxplatform-frontend',
-=======
+  oauthServerUrl: 'https://max.dwchem.co.kr',
   oauthClientId: 'maxplatform',
->>>>>>> refs/remotes/origin/hklee_0805
   oauthScope: 'read:profile read:groups read:features',
   
   // 개발 설정

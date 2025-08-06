@@ -197,11 +197,23 @@ export const exchangeCodeForToken = async (
     // Exchange code for token
     console.log(`🔄 Exchanging authorization code for token (client: ${client.client_id})`);
     
-    const response = await fetch(`/api/oauth/token`, {
+    // Determine token endpoint URL
+    let tokenUrl = '/api/oauth/token';
+    
+    // For cross-origin OAuth, use the OAuth server directly
+    if (config.oauthServerUrl && config.oauthServerUrl !== window.location.origin) {
+      tokenUrl = `${config.oauthServerUrl}/api/oauth/token`;
+    }
+    
+    console.log(`🔗 Token exchange URL: ${tokenUrl}`);
+    
+    const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
+      credentials: 'omit', // Don't send cookies for cross-origin requests
+      mode: tokenUrl.startsWith('http') ? 'cors' : 'same-origin',
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: code,
@@ -252,13 +264,134 @@ export const exchangeCodeForToken = async (
   }
 };
 
-// Initiate OAuth flow for a specific platform
-export const initiateOAuthFlow = async (platformUrl: string): Promise<void> => {
+// Initiate OAuth flow using popup window for cross-origin authentication
+export const initiateOAuthPopupFlow = async (platformUrl: string): Promise<void> => {
   const clientConfig = getClientConfigByUrl(platformUrl);
   
   if (!clientConfig) {
     console.warn('No OAuth client configuration found for URL:', platformUrl);
     // Fallback to direct navigation for non-OAuth platforms
+    window.open(platformUrl, '_blank');
+    return;
+  }
+  
+  try {
+    const authUrl = await buildAuthorizationUrl(clientConfig);
+    
+    // Store the target platform URL to redirect after authentication
+    sessionStorage.setItem('oauth_target_platform', platformUrl);
+    
+    console.log('🪟 Opening OAuth popup for:', authUrl);
+    
+    // Open OAuth flow in popup window for cross-origin support
+    const popup = window.open(
+      authUrl,
+      'oauth_popup',
+      'width=600,height=700,scrollbars=yes,resizable=yes,status=yes'
+    );
+    
+    if (!popup) {
+      throw new Error('Popup blocked. Please allow popups for this site.');
+    }
+    
+    // Return promise that resolves when OAuth completes
+    return new Promise((resolve, reject) => {
+      const messageHandler = (event: MessageEvent) => {
+        // Verify origin for security
+        const allowedOrigins = [
+          config.oauthServerUrl || config.apiBaseUrl,
+          config.frontendUrl,
+          window.location.origin
+        ];
+        
+        if (!allowedOrigins.some(origin => event.origin === origin || event.origin.includes('.dwchem.co.kr'))) {
+          console.warn('🚨 Ignoring message from untrusted origin:', event.origin);
+          return;
+        }
+        
+        if (event.data?.type === 'OAUTH_SUCCESS') {
+          console.log('✅ OAuth popup success:', event.data);
+          window.removeEventListener('message', messageHandler);
+          
+          // Handle the OAuth success
+          handleOAuthPopupSuccess(event.data, platformUrl)
+            .then(() => resolve())
+            .catch(reject);
+            
+        } else if (event.data?.type === 'OAUTH_ERROR') {
+          console.error('❌ OAuth popup error:', event.data);
+          window.removeEventListener('message', messageHandler);
+          reject(new Error(event.data.error || 'OAuth authentication failed'));
+        }
+      };
+      
+      // Listen for messages from popup
+      window.addEventListener('message', messageHandler);
+      
+      // Check if popup is closed without authentication
+      const checkClosed = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkClosed);
+          window.removeEventListener('message', messageHandler);
+          reject(new Error('OAuth popup was closed without completing authentication'));
+        }
+      }, 1000);
+      
+      // Cleanup after 10 minutes timeout
+      setTimeout(() => {
+        clearInterval(checkClosed);
+        window.removeEventListener('message', messageHandler);
+        if (!popup.closed) {
+          popup.close();
+        }
+        reject(new Error('OAuth authentication timeout'));
+      }, 10 * 60 * 1000);
+    });
+    
+  } catch (error) {
+    console.error('Failed to initiate OAuth popup flow:', error);
+    // Fallback to direct navigation
+    window.open(platformUrl, '_blank');
+  }
+};
+
+// Handle OAuth success from popup
+const handleOAuthPopupSuccess = async (data: any, platformUrl: string): Promise<void> => {
+  try {
+    console.log('🔄 Processing OAuth popup success...');
+    
+    // Exchange code for token
+    const tokenResult = await exchangeCodeForToken(data.code, data.state);
+    
+    // Store the access token
+    localStorage.setItem('token', tokenResult.access_token);
+    
+    console.log('✅ OAuth token stored, redirecting to platform...');
+    
+    // Clean up session storage
+    sessionStorage.removeItem('oauth_target_platform');
+    
+    // Navigate to the target platform
+    window.location.href = platformUrl;
+    
+  } catch (error) {
+    console.error('❌ Failed to handle OAuth popup success:', error);
+    throw error;
+  }
+};
+
+// Initiate OAuth flow for a specific platform (backward compatibility)
+export const initiateOAuthFlow = async (platformUrl: string): Promise<void> => {
+  // Use popup flow for cross-origin OAuth, fallback to redirect for same-origin
+  if (config.oauthServerUrl && config.oauthServerUrl !== window.location.origin) {
+    return initiateOAuthPopupFlow(platformUrl);
+  }
+  
+  // Original redirect-based flow for same-origin OAuth
+  const clientConfig = getClientConfigByUrl(platformUrl);
+  
+  if (!clientConfig) {
+    console.warn('No OAuth client configuration found for URL:', platformUrl);
     window.open(platformUrl, '_blank');
     return;
   }
