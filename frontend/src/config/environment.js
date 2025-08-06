@@ -25,8 +25,14 @@ const defaultConfig = {
   jupyterBaseUrl: 'http://localhost',
   
   // OAuth 설정
+<<<<<<< HEAD
   oauthClientId: 'maxplatform',
   oauthScope: 'read:profile read:groups read:features',
+=======
+  oauthServerUrl: 'https://max.dwchem.co.kr',
+  oauthClientId: 'maxlab',
+  oauthScope: 'openid profile email offline_access read:profile read:groups manage:workflows',
+>>>>>>> refs/remotes/origin/hklee_0805
   
   // 개발 설정
   debugMode: false,
