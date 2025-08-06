@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     # 현재 서버 정보
     max_platform_host: str = os.getenv("MAX_PLATFORM_HOST", "0.0.0.0")
     max_platform_port: int = int(os.getenv("MAX_PLATFORM_PORT", "8000"))
-    max_platform_api_url: str = os.getenv("MAX_PLATFORM_API_URL", "http://localhost:8000")
+    max_platform_api_url: str = os.getenv("MAX_PLATFORM_API_URL", "https://max.dwchem.co.kr")
     
     # Frontend URL (OAuth 리다이렉트용)
-    max_platform_frontend_url: str = os.getenv("MAX_PLATFORM_FRONTEND_URL", "http://localhost:3000")
+    max_platform_frontend_url: str = os.getenv("MAX_PLATFORM_FRONTEND_URL", "https://max.dwchem.co.kr")
     
     # MAX Platform 서비스 URL
     max_flowstudio_url: str = os.getenv("MAX_FLOWSTUDIO_URL", "http://localhost:3005")
@@ -52,8 +52,8 @@ class Settings(BaseSettings):
     max_teamsync_url: str = os.getenv("MAX_TEAMSYNC_URL", "http://localhost:3015")
     max_teamsync_callback_url: str = os.getenv("MAX_TEAMSYNC_CALLBACK_URL", "http://localhost:3015/oauth/callback")
     
-    max_lab_url: str = os.getenv("MAX_LAB_URL", "http://localhost:3010")
-    max_lab_callback_url: str = os.getenv("MAX_LAB_CALLBACK_URL", "http://localhost:3010/oauth/callback")
+    max_lab_url: str = os.getenv("MAX_LAB_URL", "https://maxlab.dwchem.co.kr")
+    max_lab_callback_url: str = os.getenv("MAX_LAB_CALLBACK_URL", "https://maxlab.dwchem.co.kr/oauth/callback")
     
     max_workspace_url: str = os.getenv("MAX_WORKSPACE_URL", "http://localhost:3020")
     max_workspace_callback_url: str = os.getenv("MAX_WORKSPACE_CALLBACK_URL", "http://localhost:3020/oauth/callback")

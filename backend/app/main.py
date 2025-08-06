@@ -111,7 +111,8 @@ app.add_middleware(
         settings.max_llm_url.replace("localhost", "127.0.0.1"),
         settings.max_apa_url.replace("localhost", "127.0.0.1"),
         settings.max_mlops_url.replace("localhost", "127.0.0.1"),
-        "http://192.168.15.220"
+        "http://192.168.15.220",
+        "https://maxlab.dwchem.co.kr"
     ],
     allow_credentials=True,
     allow_methods=["*"],

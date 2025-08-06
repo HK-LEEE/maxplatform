@@ -29,6 +29,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       
       try {
         // SSO 토큰 확인 (URL 파라미터에서)
+        console.log('📡 TRY start');
         const urlParams = new URLSearchParams(window.location.search);
         const ssoToken = urlParams.get('sso_token');
         
