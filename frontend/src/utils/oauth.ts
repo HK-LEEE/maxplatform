@@ -123,13 +123,18 @@ export const buildAuthorizationUrl = async (
     code_challenge_method: 'S256'
   });
   
-  // Determine OAuth server URL based on current domain
-  let authServer = config.apiBaseUrl;
+  // Determine OAuth server URL
+  let authServer = config.oauthServerUrl || config.apiBaseUrl;
   
-  // Handle same-origin OAuth for specific deployments to avoid CORS issues
+  // For dwchem.co.kr deployments, use central auth server if configured
   if (window.location.hostname.includes('dwchem.co.kr')) {
-    // For dwchem deployments, use same domain for OAuth to avoid cross-origin issues
-    authServer = window.location.origin;
+    if (config.oauthServerUrl) {
+      // Use explicitly configured OAuth server (central auth)
+      authServer = config.oauthServerUrl;
+    } else {
+      // Fallback to same-origin to avoid CORS issues
+      authServer = window.location.origin;
+    }
   }
   
   return `${authServer}/api/oauth/authorize?${params.toString()}`;

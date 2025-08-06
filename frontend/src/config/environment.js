@@ -25,6 +25,7 @@ const defaultConfig = {
   jupyterBaseUrl: 'http://localhost',
   
   // OAuth 설정
+  oauthServerUrl: 'http://localhost:8000',
   oauthClientId: 'maxplatform-frontend',
   oauthScope: 'read:profile read:groups read:features',
   
@@ -55,6 +56,7 @@ const config = {
   jupyterBaseUrl: import.meta.env.VITE_JUPYTER_BASE_URL || defaultConfig.jupyterBaseUrl,
   
   // OAuth 설정
+  oauthServerUrl: import.meta.env.VITE_OAUTH_SERVER_URL || defaultConfig.oauthServerUrl,
   oauthClientId: import.meta.env.VITE_OAUTH_CLIENT_ID || defaultConfig.oauthClientId,
   oauthScope: import.meta.env.VITE_OAUTH_SCOPE || defaultConfig.oauthScope,
   
