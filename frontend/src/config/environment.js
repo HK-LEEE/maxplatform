@@ -6,14 +6,14 @@
 // 환경 변수 기본값
 const defaultConfig = {
   // 공통 설정
-  environment: 'development',
-  apiBaseUrl: 'http://localhost:8000',
-  frontendUrl: 'http://localhost:3000',
+  environment: 'production',
+  apiBaseUrl: 'https://max.dwchem.co.kr',
+  frontendUrl: 'https://max.dwchem.co.kr',
   
   // MAX Platform 서비스 URL
   maxFlowStudioUrl: 'http://localhost:3005',
   maxTeamSyncUrl: 'http://localhost:3015',
-  maxLabUrl: 'http://localhost:3010',
+  maxLabUrl: 'https://maxlab.dwchem.co.kr',
   maxWorkspaceUrl: 'http://localhost:3020',
   maxApaUrl: 'http://localhost:3035',
   maxMlopsUrl: 'http://localhost:3040',
@@ -25,7 +25,7 @@ const defaultConfig = {
   jupyterBaseUrl: 'http://localhost',
   
   // OAuth 설정
-  oauthClientId: 'maxplatform-frontend',
+  oauthClientId: 'maxplatform',
   oauthScope: 'read:profile read:groups read:features',
   
   // 개발 설정
