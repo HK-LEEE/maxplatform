@@ -871,8 +871,6 @@ def authorize(
             
             # 현재 사용자의 세션을 무효화 (User Switch Security 적용)
             if current_user:
-                from ..services.user_switch_security_service import user_switch_security_service
-                
                 # 보안 정리 수행 (이전 사용자 토큰 정리)
                 cleanup_result = user_switch_security_service.force_previous_user_cleanup(
                     client_id=client_id,
@@ -935,8 +933,6 @@ def authorize(
             
             # 현재 사용자의 세션을 무효화 (보안 정리) - 모든 플로우에서 실행
             if current_user:
-                from ..services.user_switch_security_service import user_switch_security_service
-                
                 cleanup_result = user_switch_security_service.force_previous_user_cleanup(
                     client_id=client_id,
                     previous_user_id=str(current_user.id),
