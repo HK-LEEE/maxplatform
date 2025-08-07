@@ -276,7 +276,7 @@ async def log_security_events(
         logger.info(
             f"Processed {len(processed_events)} security events from "
             f"{client_info.get('ip_address', 'unknown')} "
-            f"(user: {current_user.username if current_user else 'anonymous'})"
+            f"(user: {current_user.email if current_user else 'anonymous'})"
         )
         
         return JSONResponse(content=response_data, status_code=200)

@@ -1,4 +1,4 @@
-|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.371 [INFO] uvicorn.access:496 - 192.168.15.220:0 - "POST /api/security/events HTTP/1.1" 500
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.371 [INFO] uvicorn.access:496 - 192.168.15.220:0 - "POST /api/security/events HTTP/1.1" 500
 2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.968 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754535024032_fabfx6j4
 2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.969 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540022_x47qv5gj
 2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.970 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540047_5pic4m40
