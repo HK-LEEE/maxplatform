@@ -133,9 +133,18 @@ async def create_security_event(
     client_info: Dict[str, Any],
     user: Optional[User],
     db: Session
-) -> SecurityEvent:
+) -> Optional[SecurityEvent]:
     """보안 이벤트 생성"""
     try:
+        # 중복 event_id 체크
+        existing_event = db.query(SecurityEvent).filter(
+            SecurityEvent.event_id == event_data.eventId
+        ).first()
+        
+        if existing_event:
+            logger.warning(f"Duplicate event_id detected: {event_data.eventId}")
+            return existing_event  # 이미 존재하는 이벤트 반환
+        
         # 컨텍스트 정보 병합
         context = {**client_info, **event_data.context}
         
@@ -162,6 +171,8 @@ async def create_security_event(
         
     except Exception as e:
         logger.error(f"Failed to create security event: {e}")
+        # 세션 롤백 처리
+        db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create security event")
 
 
@@ -208,6 +219,11 @@ async def log_security_events(
                     event_data, client_info, current_user, db
                 )
                 
+                # 이벤트가 None이면 (중복) 스킵
+                if security_event is None:
+                    logger.info(f"Skipping duplicate event: {event_data.eventId}")
+                    continue
+                
                 # 실시간 위협 탐지
                 detection_results = await security_monitor.process_security_event(
                     security_event, db
@@ -216,8 +232,16 @@ async def log_security_events(
                 threat_detections.extend(detection_results)
                 processed_events.append(security_event)
                 
+            except HTTPException:
+                # HTTPException은 이미 롤백 처리됨
+                logger.error(f"HTTP error processing event {event_data.eventId}")
+                # 세션 복구를 위해 롤백만 수행 (새 트랜잭션은 자동 시작)
+                db.rollback()
+                continue
             except Exception as e:
                 logger.error(f"Failed to process event {event_data.eventId}: {e}")
+                # 세션 복구
+                db.rollback()
                 # 개별 이벤트 실패는 전체 배치를 실패시키지 않음
                 continue
         
