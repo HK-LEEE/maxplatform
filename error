@@ -1,19 +1,20 @@
-, %(session_id)s, %(username)s, %(ip_address)s, %(user_agent)s, %(url)s, %(referrer)s, %(browser_fingerprint)s, %(details)s::JSONB, %(processed)s, %(processed_at)s, now(), now()) RETURNING security_events.created_at, security_events.updated_at]
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: [parameters: {'id': UUID('32cae115-e948-4526-85c6-27672bcec150'), 'event_id': 'evt_1754535024032_fabfx6j4', 'timestamp': datetime.datetime(2025, 8, 7, 2, 50, 24, 32000, tzinfo=TzInfo(UTC)), 'event_type': 'encryption_token_encrypted_stored', 'severity': 'low', 'user_id': UUID('21a2aaa7-444a-4038-bda3-d8bf2c4ef162'), 'session_id': 'sess_1754535023752_chwhk978oo9', 'username': '관리자', 'ip_address': '192.168.9.87', 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', 'url': 'https://maxlab.dwchem.co.kr/', 'referrer': '', 'browser_fingerprint': '97b2d75032a09f13', 'details': '{"storageType": "encrypted", "success": true, "verified": true}', 'processed': False, 'processed_at': None}]
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: (Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: 2025-08-07 12:20:13.959 [ERROR] app.api.security_events:220 - Failed to process event evt_1754536540047_5pic4m40: 500: Failed to create security event
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: 2025-08-07 12:20:13.959 [ERROR] app.api.security_events:265 - Failed to process security events: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "ix_security_events_event_id"
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: DETAIL:  Key (event_id)=(evt_1754535024032_fabfx6j4) already exists.
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: 
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: [SQL: INSERT INTO security_events (id, event_id, timestamp, event_type, severity, user_id, session_id, username, ip_address, user_agent, url, referrer, browser_fingerprint, details, processed, processed_at, created_at, updated_at) VALUES (%(id)s::UUID, %(event_id)s, %(timestamp)s, %(event_type)s, %(severity)s, %(user_id)s::UUID, %(session_id)s, %(username)s, %(ip_address)s, %(user_agent)s, %(url)s, %(referrer)s, %(browser_fingerprint)s, %(details)s::JSONB, %(processed)s, %(processed_at)s, now(), now()) RETURNING security_events.created_at, security_events.updated_at]
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: [parameters: {'id': UUID('32cae115-e948-4526-85c6-27672bcec150'), 'event_id': 'evt_1754535024032_fabfx6j4', 'timestamp': datetime.datetime(2025, 8, 7, 2, 50, 24, 32000, tzinfo=TzInfo(UTC)), 'event_type': 'encryption_token_encrypted_stored', 'severity': 'low', 'user_id': UUID('21a2aaa7-444a-4038-bda3-d8bf2c4ef162'), 'session_id': 'sess_1754535023752_chwhk978oo9', 'username': '관리자', 'ip_address': '192.168.9.87', 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36', 'url': 'https://maxlab.dwchem.co.kr/', 'referrer': '', 'browser_fingerprint': '97b2d75032a09f13', 'details': '{"storageType": "encrypted", "success": true, "verified": true}', 'processed': False, 'processed_at': None}]
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: (Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
-1|maxplatform-backend-8001  | 2025-08-07T12:20:13: 2025-08-07 12:20:13.960 [INFO] uvicorn.access:496 - 192.168.9.87:0 - "POST /api/security/events HTTP/1.1" 500
-
-
-
-
-
+|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.371 [INFO] uvicorn.access:496 - 192.168.15.220:0 - "POST /api/security/events HTTP/1.1" 500
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.968 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754535024032_fabfx6j4
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.969 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540022_x47qv5gj
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.970 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540047_5pic4m40
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.972 [ERROR] app.api.security_events:289 - Failed to process security events: 'User' object has no attribute 'username'
+2|maxplatform-backend-8002  | 2025-08-07T12:28:15: 2025-08-07 12:28:15.972 [INFO] uvicorn.access:496 - 192.168.9.87:0 - "POST /api/security/events HTTP/1.1" 500
+0|maxplatform-backend-8000  | 2025-08-07T12:28:16: 2025-08-07 12:28:16.380 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754537267288_6ux82ren
+0|maxplatform-backend-8000  | 2025-08-07T12:28:16: 2025-08-07 12:28:16.382 [ERROR] app.api.security_events:289 - Failed to process security events: 'User' object has no attribute 'username'
+0|maxplatform-backend-8000  | 2025-08-07T12:28:16: 2025-08-07 12:28:16.383 [INFO] uvicorn.access:496 - 192.168.15.220:0 - "POST /api/security/events HTTP/1.1" 500
+0|maxplatform-backend-8000  | 2025-08-07T12:28:17: 2025-08-07 12:28:17.962 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754535024032_fabfx6j4
+0|maxplatform-backend-8000  | 2025-08-07T12:28:17: 2025-08-07 12:28:17.962 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540022_x47qv5gj
+0|maxplatform-backend-8000  | 2025-08-07T12:28:17: 2025-08-07 12:28:17.963 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754536540047_5pic4m40
+0|maxplatform-backend-8000  | 2025-08-07T12:28:17: 2025-08-07 12:28:17.966 [ERROR] app.api.security_events:289 - Failed to process security events: 'User' object has no attribute 'username'
+0|maxplatform-backend-8000  | 2025-08-07T12:28:17: 2025-08-07 12:28:17.967 [INFO] uvicorn.access:496 - 192.168.9.87:0 - "POST /api/security/events HTTP/1.1" 500
+1|maxplatform-backend-8001  | 2025-08-07T12:28:18: 2025-08-07 12:28:18.394 [WARNING] app.api.security_events:145 - Duplicate event_id detected: evt_1754537267288_6ux82ren
+1|maxplatform-backend-8001  | 2025-08-07T12:28:18: 2025-08-07 12:28:18.396 [ERROR] app.api.security_events:289 - Failed to process security events: 'User' object has no attribute 'username'
+1|maxplatform-backend-8001  | 2025-08-07T12:28:18: 2025-08-07 12:28:18.397 [INFO] uvicorn.access:496 - 192.168.15.220:0 - "POST /api/security/events HTTP/1.1" 500
 
 
 
