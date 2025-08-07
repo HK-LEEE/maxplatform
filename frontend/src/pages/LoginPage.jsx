@@ -61,7 +61,7 @@ const LoginPage = () => {
           const isInPopup = window.opener !== null
           
           console.log('🔄 OAuth return processing:', { isInPopup, oauthParams })
-          
+          console.log(JSON.stringify(oauthParams))
           // 처리 완료 플래그 설정 (즉시)
           oauthProcessedRef.current = true
           
@@ -166,6 +166,8 @@ const LoginPage = () => {
       // 로그인 성공 후 OAuth return 처리
       if (oauthReturn) {
         console.log('🚀 Login successful, processing OAuth return...')
+        console.log('🚀 API BASE URL: ',config.apiBaseUrl)
+        
         
         // force_login 파라미터 제거하고 OAuth로 리다이렉트
         try {
