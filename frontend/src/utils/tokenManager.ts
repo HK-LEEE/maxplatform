@@ -72,7 +72,7 @@ export const refreshTokenIfNeeded = async (): Promise<boolean> => {
       localStorage.setItem('token', access_token)
       
       // OAuth 팝업 지원을 위해 쿠키에도 새 토큰 저장
-      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=Lax`
+      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure`
       
       console.log('토큰이 자동으로 갱신되었습니다.')
       return true

@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log('🔄 SSO 토큰 감지:', ssoToken);
           // SSO 토큰을 localStorage와 쿠키에 저장하고 URL에서 제거
           localStorage.setItem('token', ssoToken);
-          document.cookie = `access_token=${ssoToken}; path=/; max-age=3600; SameSite=Lax`
+          document.cookie = `access_token=${ssoToken}; path=/; max-age=3600; SameSite=None; Secure`
           setToken(ssoToken);
           currentToken = ssoToken;
           
@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           // OAuth 팝업 지원을 위해 기존 토큰도 쿠키에 저장 (한 번만)
           if (!document.cookie.includes('access_token=')) {
-            document.cookie = `access_token=${currentToken}; path=/; max-age=3600; SameSite=Lax`
+            document.cookie = `access_token=${currentToken}; path=/; max-age=3600; SameSite=None; Secure`
           }
           
           const userData = await authAPI.getMe();
@@ -99,7 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('refreshToken', refresh_token)
       
       // OAuth 팝업 지원을 위해 쿠키에도 토큰 저장
-      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=Lax`
+      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure`
       
       setToken(access_token)
       
