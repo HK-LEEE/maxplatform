@@ -146,7 +146,7 @@ async def create_security_event(
             severity=event_data.severity,
             user_id=user.id if user else None,
             session_id=context.get('session_id'),
-            username=user.username if user else context.get('username'),
+            username=user.real_name if user else context.get('real_name'),
             ip_address=context.get('ip_address'),
             user_agent=context.get('user_agent'),
             url=context.get('url'),
