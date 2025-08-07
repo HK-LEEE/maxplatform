@@ -74,11 +74,14 @@ const LoginPage = () => {
             // 팝업 모드: 이미 인증된 경우 부모 창에 성공 메시지 전송
             console.log('🚀 User already authenticated in popup, notifying parent...')
             
-            // 부모 창에 인증 성공 메시지 전송
+            // 부모 창에 인증 성공 메시지 전송 (표준 구조)
             const messageData = {
-              type: 'OAUTH_ALREADY_AUTHENTICATED',
-              oauthParams: oauthParams,
-              timestamp: Date.now()
+              type: 'OAUTH_MESSAGE',  // 표준 메시지 wrapper
+              data: {                  // 실제 데이터는 data 필드에
+                type: 'OAUTH_ALREADY_AUTHENTICATED',
+                oauthParams: oauthParams,
+                timestamp: Date.now()
+              }
             }
             
             // 부모 창의 origin 추정
@@ -197,11 +200,14 @@ const LoginPage = () => {
           try {
             const oauthParams = JSON.parse(decodeURIComponent(oauthReturn))
             
-            // 부모 창에 OAuth 계속 진행 메시지 전송
+            // 부모 창에 OAuth 계속 진행 메시지 전송 (표준 구조)
             const messageData = {
-              type: 'OAUTH_LOGIN_SUCCESS_CONTINUE',
-              oauthParams: oauthParams,
-              timestamp: Date.now()
+              type: 'OAUTH_MESSAGE',  // 표준 메시지 wrapper
+              data: {                  // 실제 데이터는 data 필드에
+                type: 'OAUTH_LOGIN_SUCCESS_CONTINUE',
+                oauthParams: oauthParams,
+                timestamp: Date.now()
+              }
             }
             
             console.log('📤 Sending OAuth continue message to parent:', messageData)
