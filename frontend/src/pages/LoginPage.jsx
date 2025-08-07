@@ -86,8 +86,22 @@ const LoginPage = () => {
             console.log('🔄 Popup redirecting to OAuth authorize for code generation:', authUrl.toString())
             
             // OAuth authorize 엔드포인트로 리다이렉트
-            // 서버가 이미 인증된 사용자를 감지하고 자동으로 authorization code 생성
-            window.location.href = authUrl.toString()
+            // 쿠키 전달을 위해 Form Submit 사용 (GET 메서드는 URL에 파라미터 포함됨)
+            const form = document.createElement('form')
+            form.method = 'GET'
+            form.action = authUrl.href.split('?')[0]  // 베이스 URL만 사용
+            
+            // URL 파라미터를 hidden input으로 변환
+            for (const [key, value] of authUrl.searchParams) {
+              const input = document.createElement('input')
+              input.type = 'hidden'
+              input.name = key
+              input.value = value
+              form.appendChild(input)
+            }
+            
+            document.body.appendChild(form)
+            form.submit()
             return
           } else {
             // 일반 창 모드: 기존 로직 유지
@@ -196,7 +210,22 @@ const LoginPage = () => {
             })
             
             // OAuth authorize 엔드포인트로 리다이렉트
-            window.location.href = authUrl.toString()
+            // 쿠키 전달을 위해 Form Submit 사용
+            const form = document.createElement('form')
+            form.method = 'GET'
+            form.action = authUrl.href.split('?')[0]  // 베이스 URL만 사용
+            
+            // URL 파라미터를 hidden input으로 변환
+            for (const [key, value] of authUrl.searchParams) {
+              const input = document.createElement('input')
+              input.type = 'hidden'
+              input.name = key
+              input.value = value
+              form.appendChild(input)
+            }
+            
+            document.body.appendChild(form)
+            form.submit()
             return
           } catch (error) {
             console.error('OAuth popup message sending error:', error)
