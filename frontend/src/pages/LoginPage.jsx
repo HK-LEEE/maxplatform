@@ -71,21 +71,39 @@ const LoginPage = () => {
           setSearchParams(newSearchParams, { replace: true })
           
           if (isInPopup) {
-            // 팝업 모드: 표준 OAuth 리다이렉트 방식
-            const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
-            Object.keys(oauthParams).forEach(key => {
-              if (oauthParams[key] !== null) {
-                authUrl.searchParams.append(key, oauthParams[key])
+            // 팝업 모드: 이미 인증된 경우 부모 창에 성공 메시지 전송
+            console.log('🚀 User already authenticated in popup, notifying parent...')
+            
+            // 부모 창에 인증 성공 메시지 전송
+            const messageData = {
+              type: 'OAUTH_ALREADY_AUTHENTICATED',
+              oauthParams: oauthParams,
+              timestamp: Date.now()
+            }
+            
+            // 부모 창의 origin 추정
+            let targetOrigin = '*'
+            try {
+              const stateData = JSON.parse(atob(oauthParams.state || ''))
+              if (stateData.origin) {
+                targetOrigin = stateData.origin
+                console.log('📍 Using origin from state:', targetOrigin)
               }
-            })
+            } catch (e) {
+              try {
+                targetOrigin = window.opener.location.origin
+              } catch (err) {
+                targetOrigin = '*'
+              }
+            }
             
-            console.log('🚀 Popup redirecting to OAuth URL:', authUrl.toString())
+            console.log('📤 Sending already authenticated message to parent:', messageData)
+            window.opener.postMessage(messageData, targetOrigin)
             
-            // 세션 스토리지에 처리 상태 저장
-            sessionStorage.setItem('oauth_processing', 'true')
-            
-            // 표준 OAuth 리다이렉트 방식 (PostMessage HTML이 자동 처리됨)
-            window.location.href = authUrl.toString()
+            // 팝업 닫기
+            setTimeout(() => {
+              window.close()
+            }, 500)
             return
           } else {
             // 일반 창 모드: 기존 로직 유지
@@ -168,8 +186,58 @@ const LoginPage = () => {
         console.log('🚀 Login successful, processing OAuth return...')
         console.log('🚀 API BASE URL: ',config.apiBaseUrl)
         
+        // 팝업 모드 체크 - window.opener가 있으면 팝업에서 실행 중
+        const isInPopup = window.opener !== null
+        console.log('🪟 Popup detection after login:', { isInPopup, hasOpener: !!window.opener })
         
-        // force_login 파라미터 제거하고 OAuth로 리다이렉트
+        if (isInPopup) {
+          // 팝업 모드: 부모 창에 로그인 성공과 OAuth 계속 진행 메시지 전송
+          console.log('🔄 Popup mode - notifying parent of login success and continuing OAuth...')
+          
+          try {
+            const oauthParams = JSON.parse(decodeURIComponent(oauthReturn))
+            
+            // 부모 창에 OAuth 계속 진행 메시지 전송
+            const messageData = {
+              type: 'OAUTH_LOGIN_SUCCESS_CONTINUE',
+              oauthParams: oauthParams,
+              timestamp: Date.now()
+            }
+            
+            console.log('📤 Sending OAuth continue message to parent:', messageData)
+            
+            // 부모 창의 origin 추정
+            let targetOrigin = '*'
+            try {
+              const stateData = JSON.parse(atob(oauthParams.state || ''))
+              if (stateData.origin) {
+                targetOrigin = stateData.origin
+                console.log('📍 Using origin from state:', targetOrigin)
+              }
+            } catch (e) {
+              try {
+                targetOrigin = window.opener.location.origin
+              } catch (err) {
+                targetOrigin = '*'
+              }
+            }
+            
+            window.opener.postMessage(messageData, targetOrigin)
+            
+            // 팝업 닫기
+            setTimeout(() => {
+              console.log('🚪 Closing login popup after notifying parent...')
+              window.close()
+            }, 1000)
+            
+            return
+          } catch (error) {
+            console.error('OAuth popup message sending error:', error)
+            // 에러 시 fallback으로 일반 redirect 처리
+          }
+        }
+        
+        // 일반 창 모드 또는 팝업 메시지 전송 실패시: OAuth로 리다이렉트
         try {
           const oauthParams = JSON.parse(decodeURIComponent(oauthReturn))
           
