@@ -71,42 +71,23 @@ const LoginPage = () => {
           setSearchParams(newSearchParams, { replace: true })
           
           if (isInPopup) {
-            // 팝업 모드: 이미 인증된 경우 부모 창에 성공 메시지 전송
-            console.log('🚀 User already authenticated in popup, notifying parent...')
+            // 팝업 모드: 이미 인증된 경우에도 OAuth authorize 엔드포인트로 리다이렉트
+            // OAuth 서버가 authorization code를 생성하여 callback으로 전달함
+            console.log('🚀 User already authenticated in popup, redirecting to OAuth authorize...')
             
-            // 부모 창에 인증 성공 메시지 전송 (표준 구조)
-            const messageData = {
-              type: 'OAUTH_MESSAGE',  // 표준 메시지 wrapper
-              data: {                  // 실제 데이터는 data 필드에
-                type: 'OAUTH_ALREADY_AUTHENTICATED',
-                oauthParams: oauthParams,
-                timestamp: Date.now()
+            // OAuth authorize URL 생성
+            const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
+            Object.keys(oauthParams).forEach(key => {
+              if (oauthParams[key] !== null) {
+                authUrl.searchParams.append(key, oauthParams[key])
               }
-            }
+            })
             
-            // 부모 창의 origin 추정
-            let targetOrigin = '*'
-            try {
-              const stateData = JSON.parse(atob(oauthParams.state || ''))
-              if (stateData.origin) {
-                targetOrigin = stateData.origin
-                console.log('📍 Using origin from state:', targetOrigin)
-              }
-            } catch (e) {
-              try {
-                targetOrigin = window.opener.location.origin
-              } catch (err) {
-                targetOrigin = '*'
-              }
-            }
+            console.log('🔄 Popup redirecting to OAuth authorize for code generation:', authUrl.toString())
             
-            console.log('📤 Sending already authenticated message to parent:', messageData)
-            window.opener.postMessage(messageData, targetOrigin)
-            
-            // 팝업 닫기
-            setTimeout(() => {
-              window.close()
-            }, 500)
+            // OAuth authorize 엔드포인트로 리다이렉트
+            // 서버가 이미 인증된 사용자를 감지하고 자동으로 authorization code 생성
+            window.location.href = authUrl.toString()
             return
           } else {
             // 일반 창 모드: 기존 로직 유지
@@ -200,42 +181,22 @@ const LoginPage = () => {
           try {
             const oauthParams = JSON.parse(decodeURIComponent(oauthReturn))
             
-            // 부모 창에 OAuth 계속 진행 메시지 전송 (표준 구조)
-            const messageData = {
-              type: 'OAUTH_MESSAGE',  // 표준 메시지 wrapper
-              data: {                  // 실제 데이터는 data 필드에
-                type: 'OAUTH_LOGIN_SUCCESS_CONTINUE',
-                oauthParams: oauthParams,
-                timestamp: Date.now()
+            // 로그인 성공 후 OAuth authorize로 리다이렉트하여 authorization code 받기
+            console.log('🔄 Login successful, redirecting to OAuth authorize for code generation...')
+            
+            // OAuth authorize URL 생성 (prompt=login 제거)
+            delete oauthParams.prompt
+            delete oauthParams.max_age
+            
+            const authUrl = new URL(`/api/oauth/authorize`, config.apiBaseUrl)
+            Object.keys(oauthParams).forEach(key => {
+              if (oauthParams[key] !== null) {
+                authUrl.searchParams.append(key, oauthParams[key])
               }
-            }
+            })
             
-            console.log('📤 Sending OAuth continue message to parent:', messageData)
-            
-            // 부모 창의 origin 추정
-            let targetOrigin = '*'
-            try {
-              const stateData = JSON.parse(atob(oauthParams.state || ''))
-              if (stateData.origin) {
-                targetOrigin = stateData.origin
-                console.log('📍 Using origin from state:', targetOrigin)
-              }
-            } catch (e) {
-              try {
-                targetOrigin = window.opener.location.origin
-              } catch (err) {
-                targetOrigin = '*'
-              }
-            }
-            
-            window.opener.postMessage(messageData, targetOrigin)
-            
-            // 팝업 닫기
-            setTimeout(() => {
-              console.log('🚪 Closing login popup after notifying parent...')
-              window.close()
-            }, 1000)
-            
+            // OAuth authorize 엔드포인트로 리다이렉트
+            window.location.href = authUrl.toString()
             return
           } catch (error) {
             console.error('OAuth popup message sending error:', error)

@@ -345,39 +345,26 @@ export const initiateOAuthPopupFlow = async (platformUrl: string): Promise<void>
             .catch(reject);
             
         } else if (messageData?.type === 'OAUTH_LOGIN_SUCCESS_CONTINUE') {
-          console.log('🔄 OAuth login successful, continuing OAuth flow...', messageData);
+          console.warn('⚠️ Received deprecated OAUTH_LOGIN_SUCCESS_CONTINUE message - this should not happen in current flow');
+          console.log('🔄 Fallback: OAuth login successful, continuing OAuth flow...', messageData);
           
-          // 로그인 성공 후 OAuth 플로우 계속 진행
-          const oauthParams = messageData.oauthParams || {};
-          
-          // prompt=login과 max_age 제거 (무한 루프 방지)
-          delete oauthParams.prompt;
-          delete oauthParams.max_age;
-          
-          // 팝업을 닫고 부모 창에서 직접 OAuth 토큰을 가져와서 플랫폼으로 이동
+          // 팝업을 닫고 에러 처리
           if (!popup.closed) {
             popup.close();
           }
           window.removeEventListener('message', messageHandler);
-          
-          console.log('✅ Login successful in popup, navigating to platform with existing auth...');
-          
-          // 인증이 완료되었으므로 목적지 플랫폼으로 직접 이동
-          window.location.href = platformUrl;
-          resolve();
+          reject(new Error('Received deprecated message type - OAuth flow may be misconfigured'));
           
         } else if (event.data?.type === 'OAUTH_ALREADY_AUTHENTICATED') {
-          console.log('✅ User already authenticated, navigating to platform...', event.data);
+          console.warn('⚠️ Received deprecated OAUTH_ALREADY_AUTHENTICATED message - this should not happen in current flow');
+          console.log('⚠️ Fallback: User already authenticated, but missing authorization code');
           
-          // 이미 인증된 사용자 - 팝업 닫고 플랫폼으로 이동
+          // 이미 인증된 사용자지만 authorization code가 없으므로 에러 처리
           if (!popup.closed) {
             popup.close();
           }
           window.removeEventListener('message', messageHandler);
-          
-          // 목적지 플랫폼으로 직접 이동
-          window.location.href = platformUrl;
-          resolve();
+          reject(new Error('Received deprecated message type - missing authorization code'));
           
         } else if (event.data?.type === 'OAUTH_ERROR') {
           console.error('❌ OAuth popup error:', event.data);

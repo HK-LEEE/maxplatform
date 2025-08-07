@@ -321,7 +321,7 @@ def authorize(
             )
         
         # Create authorization code
-        code = await create_authorization_code_record(
+        code = create_authorization_code_record(
             client_id, str(current_user.id), redirect_uri, scope,
             code_challenge, code_challenge_method, db
         )
@@ -333,7 +333,7 @@ def authorize(
         if state:
             success_uri += f"&state={state}"
         
-        await log_oauth_action(
+        log_oauth_action(
             "authorize", client_id, str(current_user.id), True,
             None, None, request, db
         )
@@ -348,7 +348,7 @@ def authorize(
         if state:
             error_uri += f"&state={state}"
         
-        await log_oauth_action(
+        log_oauth_action(
             "authorize", client_id, None, False,
             "server_error", str(e), request, db
         )
@@ -471,7 +471,7 @@ def token(
         
         db.commit()
         
-        await log_oauth_action(
+        log_oauth_action(
             "token", client_id, auth_code.user_id, True,
             None, None, request, db
         )
@@ -487,7 +487,7 @@ def token(
         raise
     except Exception as e:
         logger.error(f"Token error: {str(e)}")
-        await log_oauth_action(
+        log_oauth_action(
             "token", client_id, None, False,
             "server_error", str(e), request, db
         )
@@ -530,7 +530,7 @@ async def userinfo(
 
 
 @router.post("/revoke")
-async def revoke(
+def revoke(
     token: str = Form(...),
     token_type_hint: Optional[str] = Form("access_token"),
     client_id: str = Form(...),
@@ -571,7 +571,7 @@ async def revoke(
         
         db.commit()
         
-        await log_oauth_action(
+        log_oauth_action(
             "revoke", client_id, revoked.user_id if revoked else None, True,
             None, None, request, db
         )
@@ -580,7 +580,7 @@ async def revoke(
         
     except Exception as e:
         logger.error(f"Revocation error: {str(e)}")
-        await log_oauth_action(
+        log_oauth_action(
             "revoke", client_id, None, False,
             "server_error", str(e), request, db
         )
@@ -589,7 +589,7 @@ async def revoke(
 
 
 @router.post("/introspect")
-async def introspect(
+def introspect(
     token: str = Form(...),
     token_type_hint: Optional[str] = Form("access_token"),
     client_id: str = Form(...),
@@ -630,7 +630,7 @@ async def introspect(
         if not user:
             return {"active": False}
         
-        await log_oauth_action(
+        log_oauth_action(
             "introspect", client_id, str(user.id), True,
             None, None, request, db
         )
@@ -646,7 +646,7 @@ async def introspect(
         
     except Exception as e:
         logger.error(f"Introspection error: {str(e)}")
-        await log_oauth_action(
+        log_oauth_action(
             "introspect", client_id, None, False,
             "server_error", str(e), request, db
         )
