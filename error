@@ -2,3 +2,45 @@
 1|maxplatf | 2025-08-07T10:18:35: 2025-08-07 10:18:35.800 [INFO] app.utils.auth:235 - Successfully authenticated user: 21a2aaa7-444a-4038-bda3-d8bf2c4ef162
 1|maxplatf | 2025-08-07T10:18:35: 2025-08-07 10:18:35.804 [INFO] uvicorn.access:496 - 192.168.9.87:0 - "GET /api/admin/features HTTP/1.1" 200
 1|maxplatf | 2025-08-07T10:21:13: 2025-08-07 10:21:13.103 [INFO] uvicorn.access:496 - 192.168.9.87:0 - "POST /admin/features HTTP/1.0" 404
+
+
+
+🚨 SECURITY: Invalid message structure detected: 
+Object { origin: "https://max.dwchem.co.kr", messageData: {…}, expectedStructure: "OAuthMessage with type and data fields" }
+​
+expectedStructure: "OAuthMessage with type and data fields"
+​
+messageData: Object { type: "OAUTH_ALREADY_AUTHENTICATED", oauthParams: {…}, timestamp: 1754531102895 }
+​
+origin: "https://max.dwchem.co.kr"
+​
+<prototype>: Object { … }
+index-cMDFwych.js:233:5004
+⚠️ MEDIUM SECURITY VIOLATION: 
+Object { timestamp: "2025-08-07T01:45:02.899Z", event: "oauth_security_violation", violation_type: "invalid_message_structure", origin: "https://max.dwchem.co.kr", expected_origin: "https://maxlab.dwchem.co.kr", message_type: "OAUTH_ALREADY_AUTHENTICATED", reason: undefined, severity: "medium", user_agent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0", referrer: "https://maxlab.dwchem.co.kr/", … }
+​
+current_url: "https://maxlab.dwchem.co.kr/login?logout=error"
+​
+event: "oauth_security_violation"
+​
+expected_origin: "https://maxlab.dwchem.co.kr"
+​
+message_type: "OAUTH_ALREADY_AUTHENTICATED"
+​
+origin: "https://max.dwchem.co.kr"
+​
+reason: undefined
+​
+referrer: "https://maxlab.dwchem.co.kr/"
+​
+session_id: "none"
+​
+severity: "medium"
+​
+timestamp: "2025-08-07T01:45:02.899Z"
+​
+user_agent: "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0"
+​
+violation_type: "invalid_message_structure"
+​
+<prototype>: Object { … }
