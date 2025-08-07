@@ -316,6 +316,14 @@ export const initiateOAuthPopupFlow = async (platformUrl: string): Promise<void>
           return;
         }
         
+        // Log message for debugging
+        console.log('📨 Received OAuth message:', {
+          origin: event.origin,
+          type: event.data?.type,
+          hasData: !!event.data?.data,
+          hasOauthParams: !!event.data?.oauthParams
+        });
+        
         if (event.data?.type === 'OAUTH_SUCCESS') {
           console.log('✅ OAuth popup success:', event.data);
           window.removeEventListener('message', messageHandler);
@@ -329,7 +337,8 @@ export const initiateOAuthPopupFlow = async (platformUrl: string): Promise<void>
           console.log('🔄 OAuth login successful, continuing OAuth flow...', event.data);
           
           // 로그인 성공 후 OAuth 플로우 계속 진행
-          const { oauthParams } = event.data;
+          // OAuth 서버가 oauthParams 대신 data를 사용할 수도 있음
+          const oauthParams = event.data.oauthParams || event.data.data || {};
           
           // prompt=login과 max_age 제거 (무한 루프 방지)
           delete oauthParams.prompt;
