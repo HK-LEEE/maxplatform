@@ -221,7 +221,7 @@ const AdminPage: React.FC = () => {
         fetch('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/admin/groups', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('/api/admin/features', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/user_with_relations/admin/feature-categories', { headers: { Authorization: `Bearer ${token}` } })
+        fetch('/api/admin/feature-categories', { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (usersRes.ok) {
@@ -561,7 +561,7 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const url = selectedFeature ? `/admin/features/${selectedFeature.id}` : '/admin/features';
+      const url = selectedFeature ? `/api/admin/features/${selectedFeature.id}` : '/api/admin/features';
       const method = selectedFeature ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -594,7 +594,7 @@ const AdminPage: React.FC = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/admin/features/${featureId}`, {
+      const response = await fetch(`/api/admin/features/${featureId}`, {
         method: 'DELETE',
         headers: { 
           Authorization: `Bearer ${token}`,
