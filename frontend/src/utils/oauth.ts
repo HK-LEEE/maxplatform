@@ -324,21 +324,31 @@ export const initiateOAuthPopupFlow = async (platformUrl: string): Promise<void>
           hasOauthParams: !!event.data?.oauthParams
         });
         
-        if (event.data?.type === 'OAUTH_SUCCESS') {
-          console.log('✅ OAuth popup success:', event.data);
+        // 표준 메시지 구조와 레거시 구조 모두 지원
+        let messageData = event.data;
+        
+        // 표준 구조인 경우 (type: 'OAUTH_MESSAGE', data: {...})
+        if (event.data?.type === 'OAUTH_MESSAGE' && event.data?.data) {
+          console.log('✅ Standard OAuth message structure detected');
+          messageData = event.data.data;
+        } else {
+          console.log('⚠️ Legacy OAuth message structure detected');
+        }
+        
+        if (messageData?.type === 'OAUTH_SUCCESS') {
+          console.log('✅ OAuth popup success:', messageData);
           window.removeEventListener('message', messageHandler);
           
           // Handle the OAuth success
-          handleOAuthPopupSuccess(event.data, platformUrl)
+          handleOAuthPopupSuccess(messageData, platformUrl)
             .then(() => resolve())
             .catch(reject);
             
-        } else if (event.data?.type === 'OAUTH_LOGIN_SUCCESS_CONTINUE') {
-          console.log('🔄 OAuth login successful, continuing OAuth flow...', event.data);
+        } else if (messageData?.type === 'OAUTH_LOGIN_SUCCESS_CONTINUE') {
+          console.log('🔄 OAuth login successful, continuing OAuth flow...', messageData);
           
           // 로그인 성공 후 OAuth 플로우 계속 진행
-          // OAuth 서버가 oauthParams 대신 data를 사용할 수도 있음
-          const oauthParams = event.data.oauthParams || event.data.data || {};
+          const oauthParams = messageData.oauthParams || {};
           
           // prompt=login과 max_age 제거 (무한 루프 방지)
           delete oauthParams.prompt;

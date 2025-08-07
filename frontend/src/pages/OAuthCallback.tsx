@@ -43,11 +43,14 @@ const OAuthCallback: React.FC = () => {
             console.log('📤 Sending OAuth error to parent window...');
             
             const errorData = {
-              type: 'OAUTH_ERROR',
-              error,
-              error_description: errorDescription,
-              state,
-              timestamp: Date.now()
+              type: 'OAUTH_MESSAGE',  // 표준 메시지 구조
+              data: {
+                type: 'OAUTH_ERROR',
+                error,
+                error_description: errorDescription,
+                state,
+                timestamp: Date.now()
+              }
             };
             
             // Extract the original service from state parameter
@@ -109,11 +112,15 @@ const OAuthCallback: React.FC = () => {
           console.log('🔗 Popup detected - sending message to parent window...');
           
           // Send success message to parent window (popup flow)
+          // 표준 OAuth 메시지 구조 사용
           const messageData = {
-            type: 'OAUTH_SUCCESS',
-            code,
-            state: authState,
-            timestamp: Date.now()
+            type: 'OAUTH_MESSAGE',  // 최상위 타입
+            data: {                  // 실제 데이터는 data 필드에
+              type: 'OAUTH_SUCCESS',
+              code,
+              state: authState,
+              timestamp: Date.now()
+            }
           };
           
           console.log('📤 Sending OAuth success message to parent:', messageData);
@@ -204,9 +211,12 @@ const OAuthCallback: React.FC = () => {
           console.log('📤 Sending OAuth error message to parent...');
           
           const errorData = {
-            type: 'OAUTH_ERROR',
-            error: error instanceof Error ? error.message : 'OAuth authentication failed',
-            timestamp: Date.now()
+            type: 'OAUTH_MESSAGE',  // 표준 메시지 구조
+            data: {
+              type: 'OAUTH_ERROR',
+              error: error instanceof Error ? error.message : 'OAuth authentication failed',
+              timestamp: Date.now()
+            }
           };
           
           // Extract the original service from state parameter or use fallback
