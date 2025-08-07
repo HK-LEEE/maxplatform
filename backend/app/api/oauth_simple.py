@@ -765,6 +765,24 @@ def authorize(
         # 무한루프 감지를 위한 로깅
         logger.info(f"OAuth authorize request: client_id={client_id}, display={display}, prompt={prompt}, redirect_uri={redirect_uri}")
         
+        # 🔍 DEBUG: Check authentication status
+        logger.info(f"🔍 Current user authentication status: {current_user is not None}")
+        if current_user:
+            logger.info(f"🔍 Authenticated user: {current_user.email}")
+        
+        # 🔍 DEBUG: Check cookies
+        cookies = request.cookies
+        logger.info(f"🔍 Request cookies: {list(cookies.keys())}")
+        if 'access_token' in cookies:
+            logger.info(f"🔍 Access token cookie found: {cookies['access_token'][:20]}...")
+        
+        # 🔍 DEBUG: Check headers
+        auth_header = request.headers.get('Authorization')
+        logger.info(f"🔍 Authorization header: {auth_header[:30] if auth_header else 'None'}")
+        
+        # 🔍 DEBUG: Check frontend URL setting
+        logger.info(f"🔍 MAX_PLATFORM_FRONTEND_URL: {settings.max_platform_frontend_url}")
+        
         # Validate request
         if response_type != "code":
             raise HTTPException(status_code=400, detail="Unsupported response_type")
