@@ -72,7 +72,7 @@ export const refreshTokenIfNeeded = async (): Promise<boolean> => {
       localStorage.setItem('token', access_token)
       
       // OAuth 팝업 지원을 위해 쿠키에도 새 토큰 저장
-      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure`
+      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure; domain=.dwchem.co.kr`
       
       console.log('토큰이 자동으로 갱신되었습니다.')
       return true
@@ -83,7 +83,7 @@ export const refreshTokenIfNeeded = async (): Promise<boolean> => {
       localStorage.removeItem('refreshToken')
       
       // 쿠키에서도 토큰 제거
-      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr'
       
       return false
     }

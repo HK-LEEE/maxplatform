@@ -42,9 +42,9 @@
 </head>
 <body>
     <div class="container success">
-        <h1>✅ OAuth Cookie Transmission Fix Deployed</h1>
-        <p><strong>Build Version:</strong> index-CgtAsFYR.js</p>
-        <p><strong>Fix Applied:</strong> Form submission for cookie transmission</p>
+        <h1>✅ OAuth Domain Cookie Fix Deployed</h1>
+        <p><strong>Build Version:</strong> index-Ds-lzPKb.js</p>
+        <p><strong>Fix Applied:</strong> Domain-wide cookies for cross-worker sharing + Form submission</p>
     </div>
 
     <div class="container">
@@ -54,7 +54,7 @@
             <li>Go to Network tab</li>
             <li>Clear browser cache (Ctrl+Shift+Delete)</li>
             <li>Visit <a href="https://max.dwchem.co.kr" target="_blank">https://max.dwchem.co.kr</a></li>
-            <li>Check that <code>index-CgtAsFYR.js</code> is loaded (NOT index-Bo_g6srw.js)</li>
+            <li>Check that <code>index-Ds-lzPKb.js</code> is loaded (NOT index-Bo_g6srw.js or index-CgtAsFYR.js)</li>
         </ol>
     </div>
 
@@ -81,7 +81,7 @@ form.submit()</pre>
 
     <div class="container warning">
         <h2>⚠️ If Still Not Working</h2>
-        <p>If you still see the old version (index-Bo_g6srw.js):</p>
+        <p>If you still see an old version (index-Bo_g6srw.js or index-CgtAsFYR.js):</p>
         <ul>
             <li>The new build hasn't been deployed to production yet</li>
             <li>CDN cache needs to be cleared</li>
@@ -102,8 +102,8 @@ form.submit()</pre>
             const result = document.getElementById('result');
             result.innerHTML = '<p>Opening MAX Platform in new tab...</p>';
             result.innerHTML += '<p>Check DevTools Network tab for loaded JS file:</p>';
-            result.innerHTML += '<p>✅ Good: index-CgtAsFYR.js</p>';
-            result.innerHTML += '<p>❌ Bad: index-Bo_g6srw.js</p>';
+            result.innerHTML += '<p>✅ Good: index-Ds-lzPKb.js</p>';
+            result.innerHTML += '<p>❌ Bad: index-Bo_g6srw.js or index-CgtAsFYR.js</p>';
             window.open('https://max.dwchem.co.kr', '_blank');
         }
 

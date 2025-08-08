@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log('🔄 SSO 토큰 감지:', ssoToken);
           // SSO 토큰을 localStorage와 쿠키에 저장하고 URL에서 제거
           localStorage.setItem('token', ssoToken);
-          document.cookie = `access_token=${ssoToken}; path=/; max-age=3600; SameSite=None; Secure`
+          document.cookie = `access_token=${ssoToken}; path=/; max-age=3600; SameSite=None; Secure; domain=.dwchem.co.kr`
           setToken(ssoToken);
           currentToken = ssoToken;
           
@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           
           // OAuth 팝업 지원을 위해 기존 토큰도 쿠키에 저장 (한 번만)
           if (!document.cookie.includes('access_token=')) {
-            document.cookie = `access_token=${currentToken}; path=/; max-age=3600; SameSite=None; Secure`
+            document.cookie = `access_token=${currentToken}; path=/; max-age=3600; SameSite=None; Secure; domain=.dwchem.co.kr`
           }
           
           const userData = await authAPI.getMe();
@@ -77,7 +77,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.removeItem('refreshToken');
         
         // 쿠키에서도 토큰 제거
-        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr';
         
         setToken(null);
         setUser(null);
@@ -99,7 +99,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('refreshToken', refresh_token)
       
       // OAuth 팝업 지원을 위해 쿠키에도 토큰 저장
-      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure`
+      document.cookie = `access_token=${access_token}; path=/; max-age=3600; SameSite=None; Secure; domain=.dwchem.co.kr`
       
       setToken(access_token)
       
@@ -134,7 +134,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const currentToken = localStorage.getItem('token')
       localStorage.removeItem('token')
       localStorage.removeItem('refreshToken')
-      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr'
       
       // 2. 상태 업데이트
       setToken(null)
