@@ -975,11 +975,6 @@ def authorize(
             logger.warning(f"🔥 Worker {worker_id}: User switch intent detected - FORCING FRESH LOGIN")
             logger.info(f"🔥 Worker {worker_id}: force_account_selection={force_account_selection}, switch_user={switch_user_intent}, different_user={different_user_requested}")
             prompt = "login"  # 무조건 로그인 창 표시
-            
-        # 🔥 MaxLab popup 특별 처리: MaxLab에서 오는 popup만 강제 로그인
-        elif display == "popup" and current_user and client_id == "maxlab":
-            logger.warning(f"🔥 Worker {worker_id}: MaxLab popup OAuth from authenticated user - FORCING FRESH LOGIN")
-            prompt = "login"  # MaxLab popup은 항상 새로운 로그인
         
         # Check if user is authenticated
         if not current_user:
