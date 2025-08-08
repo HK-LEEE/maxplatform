@@ -812,15 +812,34 @@ def authorize(
                 redis_session = get_oauth_session_from_request(request)
                 
                 if redis_session:
-                    # Validate that Redis session matches current client
+                    # Validate that Redis session matches current user
                     session_client_id = redis_session.get('oauth_client_id')
                     session_user_id = redis_session.get('user_id')
                     
-                    if session_client_id != client_id or str(session_user_id) != str(current_user.id):
-                        logger.warning(f"🚨 Worker {worker_id}: Redis session mismatch - client: {session_client_id} vs {client_id}, user: {session_user_id} vs {current_user.id}")
+                    # Check user_id match first (critical security check)
+                    if str(session_user_id) != str(current_user.id):
+                        logger.warning(f"🚨 Worker {worker_id}: Redis session user mismatch - session: {session_user_id} vs current: {current_user.id}")
+                        current_user = None  # Force re-authentication for security
+                    # Handle client_id validation with support for standard login sessions
+                    elif session_client_id is not None and session_client_id != client_id:
+                        logger.warning(f"🚨 Worker {worker_id}: Redis session client mismatch - session: {session_client_id} vs current: {client_id}")
                         current_user = None  # Force re-authentication
                     else:
-                        logger.info(f"✅ Worker {worker_id}: Redis session validated for user {current_user.email} and client {client_id}")
+                        # Session is valid - handle standard login sessions (client_id = None)
+                        if session_client_id is None:
+                            logger.info(f"🔄 Worker {worker_id}: Upgrading standard login session to OAuth session for client {client_id}")
+                            # Update Redis session with OAuth client context
+                            try:
+                                from ..core.redis_session import update_user_session
+                                update_user_session(redis_session.get('session_id'), {
+                                    'oauth_client_id': client_id,
+                                    'oauth_upgrade_time': datetime.utcnow().isoformat()
+                                })
+                                logger.info(f"✅ Worker {worker_id}: Standard login session upgraded for OAuth client {client_id}")
+                            except Exception as upgrade_error:
+                                logger.warning(f"⚠️ Worker {worker_id}: Failed to upgrade session: {upgrade_error} - proceeding anyway")
+                        else:
+                            logger.info(f"✅ Worker {worker_id}: Redis session validated for user {current_user.email} and client {client_id}")
                 else:
                     logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - forcing re-authentication")
                     current_user = None  # Force re-authentication to create Redis session
