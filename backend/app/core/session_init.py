@@ -8,6 +8,7 @@ import os
 from typing import Optional
 from .redis_session import init_session_store
 from .oauth_redis_integration import init_oauth_redis_manager
+from ..services.token_blacklist import initialize_token_blacklist
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,11 @@ def init_session_management() -> bool:
         # Initialize OAuth Redis manager
         oauth_manager = init_oauth_redis_manager()
         
+        # Initialize token blacklist service
+        blacklist_service = initialize_token_blacklist(session_store.redis_client)
+        
         logger.info("✅ Session management initialized with Redis backing")
+        logger.info("✅ Token blacklist service initialized for OAuth token invalidation")
         logger.info(f"📊 Session configuration: timeout={session_timeout}s, redis={redis_url}")
         
         return True

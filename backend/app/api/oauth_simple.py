@@ -782,6 +782,34 @@ async def authorize(
         if current_user:
             logger.info(f"🔍 Worker {worker_id}: Authenticated user: {current_user.email}")
         
+        # 🔒 TOKEN BLACKLIST VALIDATION: Check if current Bearer token is blacklisted
+        if current_user:
+            try:
+                from ..services.token_blacklist import get_token_blacklist
+                
+                authorization_header = request.headers.get("Authorization")
+                blacklist_service = get_token_blacklist()
+                
+                if blacklist_service and authorization_header:
+                    # Extract token from Bearer header
+                    token = authorization_header
+                    if token.startswith("Bearer "):
+                        token = token[7:]
+                    
+                    if blacklist_service.is_token_blacklisted(token):
+                        logger.warning(f"🚫 Worker {worker_id}: Blacklisted token detected for user {current_user.email}")
+                        logger.warning(f"🚫 Worker {worker_id}: Token invalidated due to previous prompt=login")
+                        
+                        # Force re-authentication by clearing current user
+                        current_user = None
+                        prompt = "login"  # Force fresh login
+                        
+                        logger.warning(f"🚫 Worker {worker_id}: Forced re-authentication due to blacklisted token")
+                
+            except Exception as e:
+                logger.error(f"❌ Worker {worker_id}: Error checking token blacklist: {e}")
+                # Continue with normal flow - don't block due to blacklist check errors
+        
         # 🔍 DEBUG: Check cookies
         cookies = request.cookies
         logger.info(f"🔍 Worker {worker_id}: Request cookies: {list(cookies.keys())}")
@@ -1120,6 +1148,24 @@ async def authorize(
                 
                 # 1. 현재 access token을 블랙리스트에 추가 (무한 루프 방지)
                 try:
+                    from ..services.token_blacklist import get_token_blacklist
+                    
+                    # Extract and blacklist the current Bearer token
+                    authorization_header = request.headers.get("Authorization")
+                    blacklist_service = get_token_blacklist()
+                    
+                    if blacklist_service and authorization_header:
+                        blacklisted_count = blacklist_service.blacklist_user_tokens_by_bearer_token(
+                            current_bearer_token=authorization_header,
+                            user_id=str(current_user.id),
+                            reason="prompt_login_invalidation",
+                            ip_address=request.client.host if request.client else None,
+                            user_agent=request.headers.get("User-Agent")
+                        )
+                        logger.warning(f"🔒 Worker {worker_id}: Blacklisted {blacklisted_count} tokens for user {current_user.email} due to prompt=login")
+                    else:
+                        logger.warning(f"⚠️ Worker {worker_id}: Token blacklist service not available or no Authorization header")
+                    
                     from ..core.redis_session import delete_all_user_sessions
                     
                     # 현재 사용자의 모든 Redis 세션 삭제
@@ -1127,7 +1173,7 @@ async def authorize(
                     logger.warning(f"🔥 Worker {worker_id}: Deleted {deleted_sessions} Redis sessions for user {current_user.email}")
                     
                 except Exception as e:
-                    logger.error(f"❌ Worker {worker_id}: Failed to delete Redis sessions: {e}")
+                    logger.error(f"❌ Worker {worker_id}: Failed to delete Redis sessions or blacklist tokens: {e}")
                 
                 # 2. 보안 정리 수행 (OAuth 토큰 정리)
                 cleanup_result = user_switch_security_service.force_previous_user_cleanup(
