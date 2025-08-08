@@ -96,20 +96,65 @@ class AuthService:
             payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
             exp_timestamp = payload.get("exp", 0)
             
-            session_data = {
-                "id": str(user.id),
-                "email": user.email,
-                "name": user.real_name or user.display_name or user.email,
-                "is_admin": user.is_admin,
-                "is_active": user.is_active,
-                "groups": [{"id": str(user.group.id), "name": user.group.name}] if user.group else [],
-                "roles": [{"id": str(user.role.id), "name": user.role.name}] if user.role else [],
-                "permissions": self._extract_user_permissions(user),
-                "created_at": datetime.utcnow().isoformat(),
-                "token": token,
-                "token_exp": exp_timestamp,
-                "source": "jwt_sync"
-            }
+            # 🔥 SAFE ACCESS: 안전한 속성 접근으로 Redis 세션 생성 오류 방지
+            try:
+                # Group 정보 안전하게 추출
+                groups_data = []
+                if hasattr(user, 'group') and user.group:
+                    try:
+                        groups_data = [{"id": str(user.group.id), "name": user.group.name}]
+                    except Exception as e:
+                        logger.debug(f"Failed to extract group data: {e}")
+                        groups_data = []
+                
+                # Role 정보 안전하게 추출
+                roles_data = []
+                if hasattr(user, 'role') and user.role:
+                    try:
+                        roles_data = [{"id": str(user.role.id), "name": user.role.name}]
+                    except Exception as e:
+                        logger.debug(f"Failed to extract role data: {e}")
+                        roles_data = []
+                
+                # Permissions 안전하게 추출
+                try:
+                    permissions_data = self._extract_user_permissions(user)
+                except Exception as e:
+                    logger.debug(f"Failed to extract permissions: {e}")
+                    permissions_data = []
+                
+                session_data = {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "name": user.real_name or user.display_name or user.email,
+                    "is_admin": user.is_admin,
+                    "is_active": user.is_active,
+                    "groups": groups_data,
+                    "roles": roles_data,
+                    "permissions": permissions_data,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "token": token,
+                    "token_exp": exp_timestamp,
+                    "source": "jwt_sync"
+                }
+                
+            except Exception as e:
+                logger.error(f"Failed to build session data: {e}")
+                # 최소한의 세션 데이터로 폴백
+                session_data = {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "name": user.real_name or user.display_name or user.email,
+                    "is_admin": user.is_admin,
+                    "is_active": user.is_active,
+                    "groups": [],
+                    "roles": [],
+                    "permissions": [],
+                    "created_at": datetime.utcnow().isoformat(),
+                    "token": token,
+                    "token_exp": exp_timestamp,
+                    "source": "jwt_sync_fallback"
+                }
             
             # JWT 만료 시간과 동일하게 Redis TTL 설정
             ttl = exp_timestamp - int(time.time()) if exp_timestamp > 0 else 3600
@@ -319,32 +364,8 @@ class AuthService:
             logger.error(f"Failed to logout with Redis cleanup: {e}")
             return False
     
-    def _extract_user_permissions(self, user: User) -> list:
-        """
-        Extract user permissions from roles and groups
-        
-        Args:
-            user: User object
-            
-        Returns:
-            List of permissions
-        """
-        permissions = []
-        
-        # Extract from roles
-        if user.roles:
-            for role in user.roles:
-                if hasattr(role, 'permissions'):
-                    permissions.extend(role.permissions)
-        
-        # Extract from groups
-        if user.groups:
-            for group in user.groups:
-                if hasattr(group, 'permissions'):
-                    permissions.extend(group.permissions)
-        
-        # Remove duplicates
-        return list(set(permissions))
+    # 🔥 FIXED: 중복된 _extract_user_permissions 메소드 제거
+    # 올바른 버전은 이미 line 252-279에 정의되어 있음
 
 
 # Global auth service instance
