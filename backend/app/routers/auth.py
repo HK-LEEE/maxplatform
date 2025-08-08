@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
@@ -20,6 +20,9 @@ from ..database import get_db
 from ..models import User, Role, Group, Permission, Feature, RefreshToken
 from ..config import settings
 from ..utils.auth import get_current_user, verify_password, get_password_hash, create_access_token, create_refresh_token
+# Import Redis session management for OAuth SSO consistency
+from ..core.oauth_redis_integration import get_oauth_redis_manager, set_oauth_session_cookies
+from ..core.redis_session import create_user_session
 
 # 환경변수 로드
 load_dotenv()
@@ -372,7 +375,7 @@ async def register(user_data: UserCreate, request: Request, db: Session = Depend
     }
 
 @router.post("/login", response_model=Token)
-async def login(user_data: UserLogin, request: Request, db: Session = Depends(get_db)):
+async def login(user_data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
     """사용자 로그인"""
     try:
         logger.info(f"로그인 시도: {user_data.email}")
@@ -449,7 +452,48 @@ async def login(user_data: UserLogin, request: Request, db: Session = Depends(ge
             logger.error(f"Refresh Token 저장 실패: {e}")
             # Refresh Token 저장 실패시에도 로그인 진행
         
-        logger.info(f"로그인 성공: {user.email}")
+        # 🔧 OAuth SSO 일관성을 위한 Redis 세션 생성
+        redis_session_created = False
+        redis_session_id = None
+        try:
+            oauth_manager = get_oauth_redis_manager()
+            if oauth_manager and oauth_manager.is_redis_available():
+                # Redis 세션 데이터 준비
+                session_user_data = {
+                    "id": str(user.id),
+                    "user_id": str(user.id),
+                    "email": user.email,
+                    "name": user.display_name or user.real_name,
+                    "real_name": user.real_name,
+                    "display_name": user.display_name,
+                    "is_admin": user.is_admin,
+                    "login_method": "standard_login"  # OAuth와 구분
+                }
+                
+                # 그룹 정보 추가 (있는 경우)
+                if user.group:
+                    session_user_data["group_id"] = str(user.group.id)
+                    session_user_data["group_name"] = user.group.name
+                
+                # Redis 세션 생성
+                redis_session_id = create_user_session(session_user_data)
+                
+                if redis_session_id:
+                    # 세션 쿠키 설정 (크로스 도메인 OAuth 호환성을 위해)
+                    set_oauth_session_cookies(response, redis_session_id, session_user_data)
+                    redis_session_created = True
+                    logger.info(f"🔒 Redis 세션 및 쿠키 설정 완료: {user.email} (세션 ID: {redis_session_id[:8]}...)")
+                else:
+                    logger.warning(f"⚠️ Redis 세션 생성 실패: {user.email}")
+            else:
+                logger.warning(f"⚠️ Redis 세션 매니저 사용 불가: {user.email}")
+        except Exception as e:
+            logger.error(f"❌ Redis 세션 생성 중 오류: {user.email} - {e}")
+            import traceback
+            logger.error(f"상세 오류: {traceback.format_exc()}")
+            # Redis 세션 실패가 로그인을 방해하지 않도록 계속 진행
+        
+        logger.info(f"로그인 성공: {user.email} (Redis 세션: {'✅' if redis_session_created else '❌'})")
         
         return {
             "access_token": access_token,

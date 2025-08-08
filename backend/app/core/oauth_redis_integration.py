@@ -249,7 +249,8 @@ class OAuthRedisSessionManager:
                 'httponly': True,
                 'secure': not settings.debug,  # Use secure cookies in production
                 'samesite': 'lax',
-                'max_age': 3600  # 1 hour
+                'max_age': 3600,  # 1 hour
+                'domain': '.dwchem.co.kr'  # 🔧 Cross-subdomain cookie sharing for OAuth SSO
             }
             
             # Primary session identifier
