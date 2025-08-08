@@ -841,8 +841,27 @@ def authorize(
                         else:
                             logger.info(f"✅ Worker {worker_id}: Redis session validated for user {current_user.email} and client {client_id}")
                 else:
-                    logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - forcing re-authentication")
-                    current_user = None  # Force re-authentication to create Redis session
+                    # Redis 세션이 없어도 JWT가 유효하면 진행하되, Redis 세션 생성 시도
+                    logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - attempting to create one")
+                    try:
+                        from ..services.auth_service import AuthService
+                        from ..utils.auth import create_access_token
+                        
+                        # 현재 토큰으로 Redis 세션 생성 시도
+                        auth_service = AuthService()
+                        if auth_service.session_store:
+                            access_token = request.cookies.get('access_token')
+                            if access_token:
+                                session_id = await auth_service.create_redis_session(current_user, access_token)
+                                if session_id:
+                                    logger.info(f"✅ Worker {worker_id}: Created Redis session {session_id} for user {current_user.email}")
+                                else:
+                                    logger.warning(f"⚠️ Worker {worker_id}: Failed to create Redis session, continuing with JWT only")
+                        else:
+                            logger.info(f"ℹ️ Worker {worker_id}: Redis not available, continuing with JWT only")
+                    except Exception as e:
+                        logger.error(f"❌ Worker {worker_id}: Error creating Redis session: {e}")
+                        # Continue with JWT authentication even if Redis session creation fails
                     
             except Exception as e:
                 logger.error(f"❌ Worker {worker_id}: Redis session validation failed: {e}")

@@ -249,6 +249,35 @@ class AuthService:
             logger.error(f"Failed to cleanup user sessions: {e}")
             return 0
     
+    def _extract_user_permissions(self, user) -> list:
+        """
+        사용자의 권한 목록 추출
+        
+        Args:
+            user: User object
+            
+        Returns:
+            List of permission names
+        """
+        permissions = []
+        
+        # User-level permissions
+        if hasattr(user, 'permissions'):
+            permissions.extend([p.name for p in user.permissions])
+        
+        # Group permissions  
+        if hasattr(user, 'group') and user.group:
+            if hasattr(user.group, 'permissions'):
+                permissions.extend([p.name for p in user.group.permissions])
+        
+        # Role permissions
+        if hasattr(user, 'role') and user.role:
+            if hasattr(user.role, 'permissions'):
+                permissions.extend([p.name for p in user.role.permissions])
+        
+        # Remove duplicates
+        return list(set(permissions))
+    
     async def logout_with_redis_cleanup(self, user_id: str, token: str, db: Session) -> bool:
         """
         로그아웃 시 JWT 무효화 및 Redis 세션 정리

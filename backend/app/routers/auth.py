@@ -450,6 +450,48 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
         
         logger.info(f"로그인 성공: {user.email}")
         
+        # Access token을 쿠키로도 설정 (cross-domain SSO 지원)
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            domain=".dwchem.co.kr",
+            httponly=True,
+            secure=not settings.debug,
+            samesite="lax",
+            max_age=settings.access_token_expire_minutes * 60
+        )
+        
+        # 세션 ID와 사용자 ID도 쿠키로 설정
+        if redis_session_id:
+            response.set_cookie(
+                key="session_id",
+                value=redis_session_id,
+                domain=".dwchem.co.kr",
+                httponly=True,
+                secure=not settings.debug,
+                samesite="lax",
+                max_age=settings.access_token_expire_minutes * 60
+            )
+            response.set_cookie(
+                key="session_token",
+                value=redis_session_id,  # 호환성을 위해 두 가지 이름으로 설정
+                domain=".dwchem.co.kr",
+                httponly=True,
+                secure=not settings.debug,
+                samesite="lax",
+                max_age=settings.access_token_expire_minutes * 60
+            )
+        
+        response.set_cookie(
+            key="user_id",
+            value=str(user.id),
+            domain=".dwchem.co.kr",
+            httponly=True,
+            secure=not settings.debug,
+            samesite="lax",
+            max_age=settings.access_token_expire_minutes * 60
+        )
+        
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
