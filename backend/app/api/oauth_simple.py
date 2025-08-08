@@ -970,19 +970,26 @@ def authorize(
                 logger.warning(f"🔥 Worker {worker_id}: Different user login attempt detected - current: {current_user.email}, requested: {login_hint}")
                 different_user_requested = True
         
-        # 🎯 통합 SSO 우선: 명확한 사용자 전환 의도가 없으면 prompt 무시
-        user_switch_intent = force_account_selection or switch_user_intent or different_user_requested
+        # 🔥 **NEW**: 백업 감지 메커니즘 - 프론트엔드 파라미터 없이도 "다른 사용자로 로그인" 감지
+        popup_user_switch_detected = False
+        if (current_user and 
+            display == "popup" and 
+            not prompt and  # 프론트엔드가 prompt 파라미터를 보내지 않음
+            not force_account_selection and 
+            not switch_user_intent and
+            not different_user_requested):
+            # 팝업 + 인증된 사용자 + prompt 없음 = "다른 사용자로 로그인" 시나리오 가능성
+            logger.warning(f"🔥 Worker {worker_id}: POPUP USER SWITCH DETECTED - authenticated user in popup without prompt parameter")
+            logger.warning(f"🔥 Worker {worker_id}: This likely indicates '다른 사용자로 로그인' button click without frontend parameters")
+            popup_user_switch_detected = True
         
-        if current_user and not user_switch_intent:
-            # 통합 SSO 상황: 클라이언트가 보낸 prompt=login 무시하고 자동 인증 허용
-            if prompt == "login":
-                logger.warning(f"🔄 Worker {worker_id}: OVERRIDING client prompt=login for SSO integration")
-                logger.info(f"🔄 Worker {worker_id}: User {current_user.email} authenticated, allowing SSO auto-login")
-                prompt = None  # 자동 인증 허용
-        elif current_user and user_switch_intent:
+        # 🔥 사용자 전환 의도가 명확한 경우만 강제 로그인
+        user_switch_intent = force_account_selection or switch_user_intent or different_user_requested or popup_user_switch_detected
+        
+        if current_user and user_switch_intent:
             # 명확한 사용자 전환 의도가 있는 경우만 강제 로그인
             logger.warning(f"🔥 Worker {worker_id}: User switch intent detected - FORCING FRESH LOGIN")
-            logger.info(f"🔥 Worker {worker_id}: force_account_selection={force_account_selection}, switch_user={switch_user_intent}, different_user={different_user_requested}")
+            logger.info(f"🔥 Worker {worker_id}: force_account_selection={force_account_selection}, switch_user={switch_user_intent}, different_user={different_user_requested}, popup_switch={popup_user_switch_detected}")
             prompt = "login"  # 무조건 로그인 창 표시
         
         # Check if user is authenticated
