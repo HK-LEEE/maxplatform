@@ -422,6 +422,36 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
             refresh_token = token_result["refresh_token"]
             redis_session_id = token_result.get("session_id")
             
+            # Store JWT token hash in oauth_access_tokens table for consistent logout
+            from ..utils.auth import generate_token_hash
+            from sqlalchemy import text
+            from datetime import datetime, timedelta
+            from ..config import settings
+            
+            token_hash = generate_token_hash(access_token)
+            expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+            
+            # Store token for revocation tracking (treat JWT as OAuth token)
+            db.execute(
+                text("""
+                    INSERT INTO oauth_access_tokens 
+                    (token_hash, client_id, user_id, scope, expires_at)
+                    VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
+                    ON CONFLICT (token_hash) DO UPDATE SET
+                        expires_at = EXCLUDED.expires_at,
+                        revoked_at = NULL,
+                        created_at = NOW()
+                """),
+                {
+                    "token_hash": token_hash,
+                    "client_id": "maxplatform-web",  # Default client for JWT auth
+                    "user_id": str(user.id),
+                    "scope": "openid profile email",
+                    "expires_at": expires_at
+                }
+            )
+            db.commit()
+            
             logger.info(f"JWT 토큰 생성 및 Redis 세션 동기화 완료: {user.email}")
             
             if redis_session_id:
