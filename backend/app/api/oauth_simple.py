@@ -801,12 +801,78 @@ def authorize(
         # 🔍 DEBUG: Check frontend URL setting
         logger.info(f"🔍 Worker {worker_id}: MAX_PLATFORM_FRONTEND_URL: {settings.max_platform_frontend_url}")
         
+        # 🔥 PERFECT SOLUTION: MaxLab popup에서 강제 로그인 요구
+        # "다른 사용자로 로그인" 버튼 클릭 시 무조건 로그인 창 표시
+        if display == "popup" and current_user and client_id == "maxlab":
+            logger.warning(f"🔥 Worker {worker_id}: MaxLab popup OAuth request - FORCING FRESH LOGIN (no auto-auth)")
+            prompt = "login"  # select_account가 아닌 login으로 강제 로그인
+            
+        # 🔍 추가 보안: 다른 클라이언트에서 인증된 사용자가 또 다른 클라이언트로 요청
+        try:
+            from ..core.redis_session import get_session_store
+            session_store = get_session_store()
+            if session_store and current_user:
+                # 현재 사용자의 모든 활성 세션에서 클라이언트 확인
+                user_sessions_key = f"maxplatform_session_user:{current_user.id}"
+                existing_sessions = session_store.redis_client.smembers(user_sessions_key)
+                
+                different_client_found = False
+                for session_id in existing_sessions:
+                    session_data = session_store.get_session(session_id)
+                    if session_data and session_data.get('oauth_client_id'):
+                        existing_client = session_data.get('oauth_client_id')
+                        if existing_client != client_id:
+                            different_client_found = True
+                            logger.warning(f"🔄 Worker {worker_id}: User has active session with different client ({existing_client}) - forcing select_account")
+                            break
+                
+                if different_client_found:
+                    prompt = "select_account"
+        except Exception as e:
+            logger.debug(f"Client switching detection failed: {e}")
+            
+        # 🔍 Referrer 기반 감지
+        referrer = request.headers.get("referer", "")
+        if current_user and "maxlab.dwchem.co.kr" in referrer and "/login" in referrer:
+            logger.warning(f"🔥 Worker {worker_id}: Request from maxlab login page - FORCING FRESH LOGIN")
+            prompt = "login"  # 무조건 로그인 창 표시
+        
         # Validate request
         if response_type != "code":
             raise HTTPException(status_code=400, detail="Unsupported response_type")
         
         # Validate client and redirect URI
         client = validate_client(client_id, None, redirect_uri, db)
+        
+        # 🔴 CRITICAL SECURITY: 최종 prompt 강제 검증
+        final_prompt_decision = prompt
+        if current_user:
+            # 모든 인증된 요청에 대해 보안 정책 적용
+            security_reasons = []
+            
+            # 이유 1: MaxLab 클라이언트의 popup 요청
+            if client_id == "maxlab" and display == "popup":
+                security_reasons.append("maxlab_popup_request")
+            
+            # 이유 2: 인증된 사용자에게 prompt 파라미터 없음
+            if not prompt:
+                security_reasons.append("no_prompt_with_authenticated_user")
+            
+            # 이유 3: 다른 도메인에서 온 popup 요청
+            if display == "popup" and referrer and "maxlab.dwchem.co.kr" in referrer:
+                security_reasons.append("cross_domain_popup_request")
+            
+            # 🔥 PERFECT SOLUTION: popup 요청에 강제 로그인 적용 (자동인증 완전 차단)
+            if security_reasons:
+                final_prompt_decision = "login"  # select_account가 아닌 login으로 변경
+                logger.critical(f"🔥 Worker {worker_id}: PERFECT SECURITY POLICY APPLIED")
+                logger.critical(f"🔥 Worker {worker_id}: User: {current_user.email}, Client: {client_id}")
+                logger.critical(f"🔥 Worker {worker_id}: Reasons: {', '.join(security_reasons)}")
+                logger.critical(f"🔥 Worker {worker_id}: Forcing prompt=login (FRESH LOGIN REQUIRED)")
+        
+        # 최종 prompt 적용
+        prompt = final_prompt_decision
+        logger.info(f"🔄 Worker {worker_id}: Final prompt decision: {prompt}")
         
         # 🔄 Redis Session Validation: Check if current authentication is backed by valid Redis session
         if current_user:
@@ -889,14 +955,31 @@ def authorize(
                 # Don't force re-auth on Redis errors - gracefully degrade
                 logger.info(f"🔄 Worker {worker_id}: Continuing without Redis session validation due to error")
         
-        # 🔍 사용자 전환 감지: login_hint가 현재 사용자와 다른 경우 자동으로 prompt=select_account 설정
+        # 🎯 REFINED SOLUTION: 다른 사용자로 로그인 의도만 감지하여 강제 로그인
+        # 정상적인 SSO는 유지하면서, 명확한 사용자 전환 의도만 차단
+        
+        # 특별한 파라미터로 다른 사용자로 로그인 의도 감지
+        force_account_selection = request.query_params.get("force_account_selection") == "true"
+        switch_user_intent = request.query_params.get("switch_user") == "true"
+        
+        # 🔥 사용자 전환 감지: login_hint가 현재 사용자와 다른 경우 강제 로그인
+        different_user_requested = False
         if current_user and login_hint:
             # login_hint가 이메일 형식인지 확인
             if "@" in login_hint and login_hint != current_user.email:
-                logger.warning(f"🔄 Worker {worker_id}: Different user login attempt detected - current: {current_user.email}, requested: {login_hint}")
-                # 다른 사용자로 로그인 시도 시 prompt=select_account로 강제 설정
-                prompt = "select_account"
-                logger.info(f"🔄 Worker {worker_id}: Forcing prompt=select_account for user switch")
+                logger.warning(f"🔥 Worker {worker_id}: Different user login attempt detected - current: {current_user.email}, requested: {login_hint}")
+                different_user_requested = True
+        
+        # 🔥 다른 사용자로 로그인 의도가 명확한 경우만 강제 로그인
+        if current_user and (force_account_selection or switch_user_intent or different_user_requested):
+            logger.warning(f"🔥 Worker {worker_id}: User switch intent detected - FORCING FRESH LOGIN")
+            logger.info(f"🔥 Worker {worker_id}: force_account_selection={force_account_selection}, switch_user={switch_user_intent}, different_user={different_user_requested}")
+            prompt = "login"  # 무조건 로그인 창 표시
+            
+        # 🔥 MaxLab popup 특별 처리: MaxLab에서 오는 popup만 강제 로그인
+        elif display == "popup" and current_user and client_id == "maxlab":
+            logger.warning(f"🔥 Worker {worker_id}: MaxLab popup OAuth from authenticated user - FORCING FRESH LOGIN")
+            prompt = "login"  # MaxLab popup은 항상 새로운 로그인
         
         # Check if user is authenticated
         if not current_user:
