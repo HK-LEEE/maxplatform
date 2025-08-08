@@ -1093,6 +1093,31 @@ def authorize(
             if current_user:
                 logger.warning(f"🔥 Worker {worker_id}: COMPLETE SESSION INVALIDATION for prompt=login - user: {current_user.email}")
                 
+                # 🔧 RACE CONDITION FIX: Wait for OAuth sync requests to complete before session invalidation
+                try:
+                    from ..services.oauth_request_coordinator import get_oauth_coordinator
+                    
+                    coordinator = get_oauth_coordinator()
+                    user_id = str(current_user.id)
+                    
+                    # Check if there are active OAuth sync requests
+                    active_requests = coordinator.get_active_oauth_sync_requests(user_id)
+                    if active_requests:
+                        logger.info(f"⏳ Worker {worker_id}: Waiting for {len(active_requests)} OAuth sync requests before session invalidation")
+                        
+                        # Wait for OAuth sync completion with 8 second timeout
+                        wait_result = await coordinator.wait_for_oauth_sync_completion(user_id, max_wait_seconds=8)
+                        
+                        if wait_result["completed"]:
+                            logger.info(f"✅ Worker {worker_id}: OAuth sync completed in {wait_result['elapsed_time']:.2f}s, proceeding with session invalidation")
+                        else:
+                            logger.warning(f"⚠️ Worker {worker_id}: OAuth sync timeout after {wait_result['elapsed_time']:.2f}s, {wait_result.get('remaining_requests', 0)} requests still active")
+                            logger.warning(f"⚠️ Worker {worker_id}: Proceeding with session invalidation despite pending OAuth requests")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Worker {worker_id}: Failed to coordinate OAuth sync wait: {e}")
+                    logger.info(f"🔥 Worker {worker_id}: Proceeding with session invalidation despite coordination error")
+                
                 # 1. 현재 access token을 블랙리스트에 추가 (무한 루프 방지)
                 try:
                     from ..core.redis_session import delete_all_user_sessions
