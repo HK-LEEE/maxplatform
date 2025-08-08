@@ -402,6 +402,7 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
         
         # 로그인 기록 업데이트
         try:
+            from datetime import datetime
             user.last_login_at = datetime.utcnow()
             user.login_count += 1
             db.commit()
@@ -423,34 +424,65 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
             redis_session_id = token_result.get("session_id")
             
             # Store JWT token hash in oauth_access_tokens table for consistent logout
-            from ..utils.auth import generate_token_hash
-            from sqlalchemy import text
-            from datetime import datetime, timedelta
-            from ..config import settings
-            
-            token_hash = generate_token_hash(access_token)
-            expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
-            
-            # Store token for revocation tracking (treat JWT as OAuth token)
-            db.execute(
-                text("""
-                    INSERT INTO oauth_access_tokens 
-                    (token_hash, client_id, user_id, scope, expires_at)
-                    VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
-                    ON CONFLICT (token_hash) DO UPDATE SET
-                        expires_at = EXCLUDED.expires_at,
-                        revoked_at = NULL,
-                        created_at = NOW()
-                """),
-                {
-                    "token_hash": token_hash,
-                    "client_id": "maxplatform-web",  # Default client for JWT auth
-                    "user_id": str(user.id),
-                    "scope": "openid profile email",
-                    "expires_at": expires_at
-                }
-            )
-            db.commit()
+            try:
+                from ..utils.auth import generate_token_hash
+                from sqlalchemy import text
+                from datetime import datetime, timedelta
+                from ..config import settings
+                
+                token_hash = generate_token_hash(access_token)
+                expires_at = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+                
+                # First check if the default client exists, if not create it
+                client_check = db.execute(
+                    text("SELECT client_id FROM oauth_clients WHERE client_id = :client_id"),
+                    {"client_id": "maxplatform-web"}
+                ).first()
+                
+                if not client_check:
+                    # Create the default OAuth client for JWT tokens
+                    db.execute(
+                        text("""
+                            INSERT INTO oauth_clients 
+                            (client_id, client_secret, redirect_uris, grant_types, 
+                             response_types, scope, is_active, is_confidential)
+                            VALUES (:client_id, :client_secret, :redirect_uris, :grant_types,
+                                    :response_types, :scope, true, false)
+                        """),
+                        {
+                            "client_id": "maxplatform-web",
+                            "client_secret": "not-used-for-jwt",
+                            "redirect_uris": "https://max.dwchem.co.kr,https://maxlab.dwchem.co.kr",
+                            "grant_types": "password,refresh_token",
+                            "response_types": "token",
+                            "scope": "openid profile email"
+                        }
+                    )
+                
+                # Store token for revocation tracking (treat JWT as OAuth token)
+                db.execute(
+                    text("""
+                        INSERT INTO oauth_access_tokens 
+                        (token_hash, client_id, user_id, scope, expires_at)
+                        VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at)
+                        ON CONFLICT (token_hash) DO UPDATE SET
+                            expires_at = EXCLUDED.expires_at,
+                            revoked_at = NULL,
+                            created_at = NOW()
+                    """),
+                    {
+                        "token_hash": token_hash,
+                        "client_id": "maxplatform-web",  # Default client for JWT auth
+                        "user_id": str(user.id),
+                        "scope": "openid profile email",
+                        "expires_at": expires_at
+                    }
+                )
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to store JWT token hash for revocation tracking: {e}")
+                # Don't fail login if token storage fails
+                db.rollback()
             
             logger.info(f"JWT 토큰 생성 및 Redis 세션 동기화 완료: {user.email}")
             
