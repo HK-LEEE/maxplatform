@@ -1,3 +1,4 @@
+// Cache bust: 2025-08-08-09:00 - Fixed OAuth cookie transmission with form.submit()
 import React, { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, Sparkles, ArrowRight } from 'lucide-react'
@@ -83,7 +84,7 @@ const LoginPage = () => {
               }
             })
             
-            console.log('🔄 Popup redirecting to OAuth authorize for code generation:', authUrl.toString())
+            console.log('🔄 Popup redirecting to OAuth authorize for code generation (v2 with form.submit):', authUrl.toString())
             
             // OAuth authorize 엔드포인트로 리다이렉트
             // 쿠키 전달을 위해 Form Submit 사용 (GET 메서드는 URL에 파라미터 포함됨)

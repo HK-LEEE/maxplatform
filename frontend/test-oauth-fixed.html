@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✅ OAuth Fix Verification</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .success { background: #dcfce7; border: 2px solid #22c55e; }
+        .warning { background: #fef3c7; border: 2px solid #f59e0b; }
+        pre {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #2563eb; }
+    </style>
+</head>
+<body>
+    <div class="container success">
+        <h1>✅ OAuth Cookie Transmission Fix Deployed</h1>
+        <p><strong>Build Version:</strong> index-CgtAsFYR.js</p>
+        <p><strong>Fix Applied:</strong> Form submission for cookie transmission</p>
+    </div>
+
+    <div class="container">
+        <h2>🔍 Verification Steps</h2>
+        <ol>
+            <li>Open Browser DevTools (F12)</li>
+            <li>Go to Network tab</li>
+            <li>Clear browser cache (Ctrl+Shift+Delete)</li>
+            <li>Visit <a href="https://max.dwchem.co.kr" target="_blank">https://max.dwchem.co.kr</a></li>
+            <li>Check that <code>index-CgtAsFYR.js</code> is loaded (NOT index-Bo_g6srw.js)</li>
+        </ol>
+    </div>
+
+    <div class="container">
+        <h2>📝 What Was Fixed</h2>
+        <h3>Before (❌ Cookies not transmitted):</h3>
+        <pre>window.location.href = authUrl.toString()</pre>
+        
+        <h3>After (✅ Cookies properly transmitted):</h3>
+        <pre>const form = document.createElement('form')
+form.method = 'GET'
+form.action = authUrl.href.split('?')[0]
+// Add parameters as hidden inputs
+for (const [key, value] of authUrl.searchParams) {
+  const input = document.createElement('input')
+  input.type = 'hidden'
+  input.name = key
+  input.value = value
+  form.appendChild(input)
+}
+document.body.appendChild(form)
+form.submit()</pre>
+    </div>
+
+    <div class="container warning">
+        <h2>⚠️ If Still Not Working</h2>
+        <p>If you still see the old version (index-Bo_g6srw.js):</p>
+        <ul>
+            <li>The new build hasn't been deployed to production yet</li>
+            <li>CDN cache needs to be cleared</li>
+            <li>Try incognito/private browsing mode</li>
+            <li>Clear all site data for max.dwchem.co.kr</li>
+        </ul>
+    </div>
+
+    <div class="container">
+        <h2>🚀 Quick Test</h2>
+        <button onclick="checkVersion()">Check Deployed Version</button>
+        <button onclick="testOAuth()">Test OAuth Flow</button>
+        <div id="result" style="margin-top: 10px;"></div>
+    </div>
+
+    <script>
+        function checkVersion() {
+            const result = document.getElementById('result');
+            result.innerHTML = '<p>Opening MAX Platform in new tab...</p>';
+            result.innerHTML += '<p>Check DevTools Network tab for loaded JS file:</p>';
+            result.innerHTML += '<p>✅ Good: index-CgtAsFYR.js</p>';
+            result.innerHTML += '<p>❌ Bad: index-Bo_g6srw.js</p>';
+            window.open('https://max.dwchem.co.kr', '_blank');
+        }
+
+        function testOAuth() {
+            window.open('https://maxlab.dwchem.co.kr', '_blank');
+            const result = document.getElementById('result');
+            result.innerHTML = '<p>OAuth test opened in new tab. Try logging in with SSO.</p>';
+        }
+    </script>
+</body>
+</html>
