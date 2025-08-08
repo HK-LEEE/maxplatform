@@ -11,6 +11,7 @@ from ..models.user import User
 import logging
 import secrets
 import uuid
+import hashlib
 from .logging_config import get_auth_logger, log_auth_event, SecurityDataFilter
 
 logger = get_auth_logger()
@@ -28,6 +29,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """비밀번호 해시 생성"""
     return pwd_context.hash(password)
+
+def generate_token_hash(token: str) -> str:
+    """Generate SHA256 hash of token for storage and revocation"""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """JWT 액세스 토큰 생성 (고유성 보장)"""
