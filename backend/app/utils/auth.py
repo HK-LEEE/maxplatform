@@ -464,6 +464,44 @@ def get_current_user_with_redis_session(
         return None
 
 
+def get_current_user_from_token(token: str, db: Session) -> Optional[User]:
+    """
+    토큰 문자열로부터 직접 사용자 조회
+    OAuth logout 엔드포인트에서 쿠키 토큰 검증용
+    
+    Args:
+        token: JWT 토큰 문자열
+        db: 데이터베이스 세션
+    
+    Returns:
+        User 객체 또는 None
+    """
+    try:
+        # Bearer 접두사 제거
+        if token.startswith("Bearer "):
+            token = token[7:]
+        
+        # 토큰 검증 및 사용자 ID 추출
+        user_id = verify_token(token)
+        
+        if not user_id:
+            return None
+        
+        # 데이터베이스에서 사용자 조회
+        user = get_user_by_id(db, user_id)
+        
+        if user and user.is_active:
+            logger.debug(f"✅ User validated from token: {user.email}")
+            return user
+        else:
+            logger.debug(f"User not found or inactive: {user_id}")
+            return None
+            
+    except Exception as e:
+        logger.debug(f"Token validation failed: {e}")
+        return None
+
+
 def verify_service_token(token: str, required_scopes: Optional[list] = None) -> Dict[str, Any]:
     """
     서비스 토큰 검증 (Client Credentials Grant용)
