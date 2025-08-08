@@ -7,8 +7,10 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 import base64
+import time
 from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
+from jose import jwt, JWTError
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, Form
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -845,9 +847,6 @@ def authorize(
                     logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - attempting to create one")
                     try:
                         from ..core.redis_session import create_user_session
-                        from ..config import settings
-                        from jose import jwt
-                        import time
                         
                         # 현재 토큰으로 Redis 세션 생성 시도
                         access_token = request.cookies.get('access_token')
