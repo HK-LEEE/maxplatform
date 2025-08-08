@@ -1177,13 +1177,47 @@ def authorize(
                 logger.warning(f"Session creation failed for prompt=none: {e}")
                 db.rollback()
             
-            # Immediately redirect with authorization code (no user interaction)
+            # Immediately redirect with authorization code (no user interaction) with 쿠키 보존
             final_url = f"{redirect_uri}?code={code}"
             if state:
                 final_url += f"&state={state}"
             
             logger.info(f"prompt=none success: redirecting to {final_url}")
-            return RedirectResponse(url=final_url)
+            
+            # 🔧 prompt=none 리다이렉트 시에도 쿠키 보존
+            prompt_none_response = RedirectResponse(url=final_url)
+            
+            try:
+                access_token_cookie = request.cookies.get('access_token')
+                if access_token_cookie:
+                    prompt_none_response.set_cookie(
+                        'access_token', 
+                        access_token_cookie, 
+                        domain='.dwchem.co.kr',
+                        httponly=True,
+                        secure=not settings.debug,
+                        samesite='lax',
+                        max_age=3600
+                    )
+                
+                # Redis 세션 쿠키도 보존
+                session_id_cookie = request.cookies.get('session_id')
+                session_token_cookie = request.cookies.get('session_token')
+                user_id_cookie = request.cookies.get('user_id')
+                
+                if session_id_cookie:
+                    prompt_none_response.set_cookie('session_id', session_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                if session_token_cookie:
+                    prompt_none_response.set_cookie('session_token', session_token_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                if user_id_cookie:
+                    prompt_none_response.set_cookie('user_id', user_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                    
+                logger.info(f"✅ Worker {worker_id}: Preserved cookies in prompt=none redirect")
+                
+            except Exception as cookie_error:
+                logger.warning(f"⚠️ Worker {worker_id}: Failed to preserve cookies in prompt=none redirect: {cookie_error}")
+            
+            return prompt_none_response
         
         # Check max_age requirement for OIDC
         if max_age is not None:
@@ -1475,9 +1509,42 @@ def authorize(
             )
             
             from fastapi.responses import HTMLResponse
-            return HTMLResponse(content=html_content)
+            popup_response = HTMLResponse(content=html_content)
+            
+            # 🔧 팝업 모드에서도 쿠키 보존
+            try:
+                access_token_cookie = request.cookies.get('access_token')
+                if access_token_cookie:
+                    popup_response.set_cookie(
+                        'access_token', 
+                        access_token_cookie, 
+                        domain='.dwchem.co.kr',
+                        httponly=True,
+                        secure=not settings.debug,
+                        samesite='lax',
+                        max_age=3600
+                    )
+                
+                # Redis 세션 쿠키도 보존
+                session_id_cookie = request.cookies.get('session_id')
+                session_token_cookie = request.cookies.get('session_token')
+                user_id_cookie = request.cookies.get('user_id')
+                
+                if session_id_cookie:
+                    popup_response.set_cookie('session_id', session_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                if session_token_cookie:
+                    popup_response.set_cookie('session_token', session_token_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                if user_id_cookie:
+                    popup_response.set_cookie('user_id', user_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                    
+                logger.info(f"✅ Worker {worker_id}: Preserved cookies in OAuth popup response")
+                
+            except Exception as cookie_error:
+                logger.warning(f"⚠️ Worker {worker_id}: Failed to preserve cookies in popup response: {cookie_error}")
+            
+            return popup_response
         
-        # 일반 모드: 기존 리다이렉트 로직
+        # 일반 모드: 기존 리다이렉트 로직 with 쿠키 보존
         success_uri = f"{redirect_uri}?code={code}"
         if state:
             success_uri += f"&state={state}"
@@ -1487,7 +1554,43 @@ def authorize(
             None, None, request, db
         )
         
-        return RedirectResponse(url=success_uri)
+        # 🔧 OAuth 리다이렉트 시 세션 쿠키 보존
+        response = RedirectResponse(url=success_uri)
+        
+        try:
+            # 기존 access_token 쿠키 보존 (크로스 도메인 OAuth 지원)
+            access_token_cookie = request.cookies.get('access_token')
+            if access_token_cookie:
+                response.set_cookie(
+                    'access_token', 
+                    access_token_cookie, 
+                    domain='.dwchem.co.kr',
+                    httponly=True,
+                    secure=not settings.debug,
+                    samesite='lax',
+                    max_age=3600
+                )
+                logger.info(f"✅ Worker {worker_id}: Preserved access_token cookie in OAuth redirect")
+            
+            # Redis 세션 쿠키 보존
+            session_id_cookie = request.cookies.get('session_id')
+            session_token_cookie = request.cookies.get('session_token')
+            user_id_cookie = request.cookies.get('user_id')
+            
+            if session_id_cookie:
+                response.set_cookie('session_id', session_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+            if session_token_cookie:
+                response.set_cookie('session_token', session_token_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+            if user_id_cookie:
+                response.set_cookie('user_id', user_id_cookie, domain='.dwchem.co.kr', httponly=True, secure=not settings.debug, samesite='lax', max_age=3600)
+                
+            logger.info(f"✅ Worker {worker_id}: Preserved session cookies in OAuth redirect")
+            
+        except Exception as cookie_error:
+            logger.warning(f"⚠️ Worker {worker_id}: Failed to preserve cookies in OAuth redirect: {cookie_error}")
+            # Continue anyway - cookie preservation failure shouldn't break OAuth flow
+        
+        return response
         
     except HTTPException:
         raise
