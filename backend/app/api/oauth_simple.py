@@ -889,6 +889,15 @@ def authorize(
                 # Don't force re-auth on Redis errors - gracefully degrade
                 logger.info(f"🔄 Worker {worker_id}: Continuing without Redis session validation due to error")
         
+        # 🔍 사용자 전환 감지: login_hint가 현재 사용자와 다른 경우 자동으로 prompt=select_account 설정
+        if current_user and login_hint:
+            # login_hint가 이메일 형식인지 확인
+            if "@" in login_hint and login_hint != current_user.email:
+                logger.warning(f"🔄 Worker {worker_id}: Different user login attempt detected - current: {current_user.email}, requested: {login_hint}")
+                # 다른 사용자로 로그인 시도 시 prompt=select_account로 강제 설정
+                prompt = "select_account"
+                logger.info(f"🔄 Worker {worker_id}: Forcing prompt=select_account for user switch")
+        
         # Check if user is authenticated
         if not current_user:
             # prompt=none 처리: OpenID Connect 표준에 따라 login_required 에러 반환
@@ -1036,11 +1045,15 @@ def authorize(
                 request, db
             )
             
-            # 세션 쿠키 삭제하여 강제 재로그인
+            # 세션 쿠키 삭제하여 강제 재로그인 (크로스 도메인 완전 삭제)
             response = RedirectResponse(url=login_url)
-            response.delete_cookie("session_token")
-            response.delete_cookie("session_id")
-            response.delete_cookie("access_token")
+            for cookie_name in ["session_token", "session_id", "access_token", "user_id", "oauth_session"]:
+                # 도메인 없이 삭제
+                response.delete_cookie(cookie_name)
+                # .dwchem.co.kr 도메인으로 삭제 (크로스 도메인 쿠키)
+                response.delete_cookie(cookie_name, domain=".dwchem.co.kr")
+                # 현재 도메인으로도 삭제
+                response.delete_cookie(cookie_name, path="/")
             
             return response
         
@@ -1087,11 +1100,15 @@ def authorize(
             login_url = f"{settings.max_platform_frontend_url}/login?oauth_return={oauth_params_encoded}&force_login=true"
             logger.info(f"Redirecting to account selection with force_login: {login_url}")
             
-            # 세션 쿠키 삭제
+            # 세션 쿠키 삭제 (계정 선택 강제, 크로스 도메인 완전 삭제)
             response = RedirectResponse(url=login_url)
-            response.delete_cookie("session_token")
-            response.delete_cookie("session_id")
-            response.delete_cookie("access_token")
+            for cookie_name in ["session_token", "session_id", "access_token", "user_id", "oauth_session"]:
+                # 도메인 없이 삭제
+                response.delete_cookie(cookie_name)
+                # .dwchem.co.kr 도메인으로 삭제 (크로스 도메인 쿠키)
+                response.delete_cookie(cookie_name, domain=".dwchem.co.kr")
+                # 현재 도메인으로도 삭제
+                response.delete_cookie(cookie_name, path="/")
             
             return response
         
@@ -2915,9 +2932,13 @@ async def oauth_logout(
     # Enhanced Response with Comprehensive Cookie Cleanup
     response = RedirectResponse(url=redirect_url, status_code=302)
     
-    # Clear all possible cookie variations
-    cookie_names = ["access_token", "token", "auth_token", "jwt_token", "refresh_token"]
-    cookie_domains = [".dwchem.co.kr", "max.dwchem.co.kr", "maxlab.dwchem.co.kr"]
+    # Clear all possible cookie variations (JWT, 세션, OAuth 관련 모든 쿠키)
+    cookie_names = [
+        "access_token", "token", "auth_token", "jwt_token", "refresh_token",
+        "session_id", "session_token", "user_id", "oauth_session",
+        "maxplatform_session", "maxlab_session"
+    ]
+    cookie_domains = [None, ".dwchem.co.kr", "max.dwchem.co.kr", "maxlab.dwchem.co.kr"]
     cookie_paths = ["/", "/api/", "/oauth/"]
     
     for cookie_name in cookie_names:
