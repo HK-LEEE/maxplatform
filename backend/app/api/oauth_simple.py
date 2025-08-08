@@ -845,14 +845,14 @@ def authorize(
                     logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - attempting to create one")
                     try:
                         from ..core.redis_session import create_user_session
+                        from ..config import settings
+                        from jose import jwt
                         import time
                         
                         # 현재 토큰으로 Redis 세션 생성 시도
                         access_token = request.cookies.get('access_token')
                         if access_token:
                             # JWT 토큰에서 만료 시간 추출
-                            from jose import jwt
-                            from ..config import settings
                             payload = jwt.decode(access_token, settings.secret_key, algorithms=[settings.algorithm], options={"verify_exp": False})
                             exp_timestamp = payload.get("exp", 0)
                             
