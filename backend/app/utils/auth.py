@@ -231,6 +231,25 @@ def get_current_user(
         logger.debug(f"Token validation failed: {e}")
         raise credentials_exception
     
+    # OAuth 토큰 취소 상태 확인
+    # OAuth 테이블에 토큰이 저장되어 있는 경우 취소 여부 확인
+    from sqlalchemy import text
+    token_hash = generate_token_hash(token)
+    result = db.execute(
+        text("""
+            SELECT revoked_at FROM oauth_access_tokens 
+            WHERE token_hash = :token_hash
+            LIMIT 1
+        """),
+        {"token_hash": token_hash}
+    )
+    oauth_token = result.first()
+    
+    # OAuth 토큰이 존재하고 취소된 경우
+    if oauth_token and oauth_token.revoked_at is not None:
+        logger.warning(f"Token for user {user_id} has been revoked")
+        raise credentials_exception
+    
     # 사용자 조회
     user = get_user_by_id(db, user_id)
     if user is None:
@@ -247,6 +266,7 @@ def get_current_user_optional(
     """
     Access Token으로부터 현재 사용자 정보 조회 (선택적)
     인증되지 않은 경우 None을 반환하고 예외를 발생시키지 않음
+    OAuth 토큰 취소 상태도 확인함
     """
     try:
         # Request에서 토큰 추출
@@ -276,6 +296,25 @@ def get_current_user_optional(
         # 사용자 ID 추출
         user_id = payload.get("user_id") or payload.get("sub")
         if not user_id:
+            return None
+            
+        # OAuth 토큰 취소 상태 확인
+        # OAuth 테이블에 토큰이 저장되어 있는 경우 취소 여부 확인
+        from sqlalchemy import text
+        token_hash = generate_token_hash(token)
+        result = db.execute(
+            text("""
+                SELECT revoked_at FROM oauth_access_tokens 
+                WHERE token_hash = :token_hash
+                LIMIT 1
+            """),
+            {"token_hash": token_hash}
+        )
+        oauth_token = result.first()
+        
+        # OAuth 토큰이 존재하고 취소된 경우
+        if oauth_token and oauth_token.revoked_at is not None:
+            logger.info(f"Token for user {user_id} has been revoked")
             return None
             
         # 데이터베이스에서 사용자 조회
@@ -334,12 +373,12 @@ def get_current_user_with_groups(
         "is_admin": user.is_admin
     }
 
-def get_current_user_optional(
+def get_current_user_optional_with_token(
     request: Request,
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ):
-    """선택적 사용자 인증 (토큰이 없어도 에러를 발생시키지 않음)"""
+    """선택적 사용자 인증 (토큰이 없어도 에러를 발생시키지 않음) - OAuth 토큰 취소 상태 확인 포함"""
     try:
         return get_current_user(request, token, db)
     except HTTPException:
