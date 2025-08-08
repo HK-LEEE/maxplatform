@@ -1089,14 +1089,27 @@ def authorize(
         if prompt == "login":
             logger.info(f"prompt=login: forcing re-authentication for client {client_id}")
             
-            # 현재 사용자의 세션을 무효화 (User Switch Security 적용)
+            # 🔥 CRITICAL FIX: 현재 사용자의 모든 세션을 완전히 무효화하여 무한 루프 방지
             if current_user:
-                # 보안 정리 수행 (이전 사용자 토큰 정리)
+                logger.warning(f"🔥 Worker {worker_id}: COMPLETE SESSION INVALIDATION for prompt=login - user: {current_user.email}")
+                
+                # 1. 현재 access token을 블랙리스트에 추가 (무한 루프 방지)
+                try:
+                    from ..core.redis_session import delete_all_user_sessions
+                    
+                    # 현재 사용자의 모든 Redis 세션 삭제
+                    deleted_sessions = delete_all_user_sessions(str(current_user.id))
+                    logger.warning(f"🔥 Worker {worker_id}: Deleted {deleted_sessions} Redis sessions for user {current_user.email}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Worker {worker_id}: Failed to delete Redis sessions: {e}")
+                
+                # 2. 보안 정리 수행 (OAuth 토큰 정리)
                 cleanup_result = user_switch_security_service.force_previous_user_cleanup(
                     client_id=client_id,
                     previous_user_id=str(current_user.id),
                     new_user_id=None,  # None instead of "pending" to avoid UUID type error
-                    reason="prompt_login",
+                    reason="prompt_login_complete_invalidation",
                     db=db
                 )
                 
@@ -1139,16 +1152,39 @@ def authorize(
                 request, db
             )
             
-            # 세션 쿠키 삭제하여 강제 재로그인 (크로스 도메인 완전 삭제)
+            # 🔥 CRITICAL: 모든 인증 관련 쿠키 완전 삭제 (무한 루프 방지)
             response = RedirectResponse(url=login_url)
-            for cookie_name in ["session_token", "session_id", "access_token", "user_id", "oauth_session"]:
-                # 도메인 없이 삭제
-                response.delete_cookie(cookie_name)
-                # .dwchem.co.kr 도메인으로 삭제 (크로스 도메인 쿠키)
-                response.delete_cookie(cookie_name, domain=".dwchem.co.kr")
-                # 현재 도메인으로도 삭제
-                response.delete_cookie(cookie_name, path="/")
             
+            # 모든 인증 관련 쿠키 목록 (포괄적 삭제)
+            auth_cookies = [
+                "session_token", "session_id", "access_token", "refresh_token", 
+                "user_id", "oauth_session", "auth_token", "_session", "jwt_token"
+            ]
+            
+            logger.warning(f"🔥 Worker {worker_id}: Deleting ALL authentication cookies for complete invalidation")
+            
+            for cookie_name in auth_cookies:
+                try:
+                    # 1. 도메인 없이 삭제 (현재 도메인)
+                    response.delete_cookie(cookie_name, path="/")
+                    
+                    # 2. .dwchem.co.kr 도메인으로 삭제 (크로스 도메인)
+                    response.delete_cookie(cookie_name, domain=".dwchem.co.kr", path="/")
+                    
+                    # 3. max.dwchem.co.kr 도메인으로 삭제 (명시적)
+                    response.delete_cookie(cookie_name, domain="max.dwchem.co.kr", path="/")
+                    
+                    # 4. localhost 도메인으로 삭제 (개발 환경)
+                    response.delete_cookie(cookie_name, domain="localhost", path="/")
+                    
+                    # 5. Secure, SameSite 옵션으로도 삭제 시도
+                    response.delete_cookie(cookie_name, domain=".dwchem.co.kr", path="/", 
+                                         secure=not settings.debug, samesite="lax")
+                                         
+                except Exception as e:
+                    logger.debug(f"Cookie deletion failed for {cookie_name}: {e}")
+            
+            logger.warning(f"🔥 Worker {worker_id}: Complete session invalidation completed - redirecting to fresh login")
             return response
         
         # prompt=select_account 처리: 계정 선택 화면 표시 (다른 사용자로 로그인)
