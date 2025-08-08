@@ -747,7 +747,7 @@ def get_openid_configuration(request: Request):
 
 # OAuth endpoints
 @router.get("/authorize")
-def authorize(
+async def authorize(
     response_type: str = Query(...),
     client_id: str = Query(...),
     redirect_uri: str = Query(...),
