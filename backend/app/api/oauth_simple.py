@@ -844,21 +844,43 @@ def authorize(
                     # Redis 세션이 없어도 JWT가 유효하면 진행하되, Redis 세션 생성 시도
                     logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - attempting to create one")
                     try:
-                        from ..services.auth_service import AuthService
-                        from ..utils.auth import create_access_token
+                        from ..core.redis_session import create_user_session
+                        import time
                         
                         # 현재 토큰으로 Redis 세션 생성 시도
-                        auth_service = AuthService()
-                        if auth_service.session_store:
-                            access_token = request.cookies.get('access_token')
-                            if access_token:
-                                session_id = await auth_service.create_redis_session(current_user, access_token)
+                        access_token = request.cookies.get('access_token')
+                        if access_token:
+                            # JWT 토큰에서 만료 시간 추출
+                            from jose import jwt
+                            from ..config import settings
+                            payload = jwt.decode(access_token, settings.secret_key, algorithms=[settings.algorithm], options={"verify_exp": False})
+                            exp_timestamp = payload.get("exp", 0)
+                            
+                            session_data = {
+                                "id": str(current_user.id),
+                                "email": current_user.email,
+                                "name": current_user.real_name or current_user.display_name or current_user.email,
+                                "is_admin": current_user.is_admin,
+                                "is_active": current_user.is_active,
+                                "groups": [{"id": str(current_user.group.id), "name": current_user.group.name}] if current_user.group else [],
+                                "roles": [{"id": str(current_user.role.id), "name": current_user.role.name}] if current_user.role else [],
+                                "created_at": datetime.utcnow().isoformat(),
+                                "token": access_token,
+                                "token_exp": exp_timestamp,
+                                "source": "oauth_recovery"
+                            }
+                            
+                            # TTL 계산
+                            ttl = exp_timestamp - int(time.time()) if exp_timestamp > 0 else 1800
+                            
+                            if ttl > 0:
+                                session_id = create_user_session(session_data)
                                 if session_id:
                                     logger.info(f"✅ Worker {worker_id}: Created Redis session {session_id} for user {current_user.email}")
                                 else:
                                     logger.warning(f"⚠️ Worker {worker_id}: Failed to create Redis session, continuing with JWT only")
-                        else:
-                            logger.info(f"ℹ️ Worker {worker_id}: Redis not available, continuing with JWT only")
+                            else:
+                                logger.warning(f"⚠️ Worker {worker_id}: Token expired, cannot create Redis session")
                     except Exception as e:
                         logger.error(f"❌ Worker {worker_id}: Error creating Redis session: {e}")
                         # Continue with JWT authentication even if Redis session creation fails
