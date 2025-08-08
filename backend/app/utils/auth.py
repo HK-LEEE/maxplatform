@@ -406,6 +406,64 @@ def get_current_user_silent(
         return None
 
 
+def get_current_user_with_redis_session(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    OAuth authorization 엔드포인트용 하이브리드 인증
+    1단계: JWT 토큰 검증 (기존 방식)
+    2단계: Redis 세션 검증 (새로운 방식)
+    
+    이 함수는 JWT 토큰과 Redis 세션을 모두 확인하여
+    OAuth SSO 플로우에서 일관된 인증 상태를 보장합니다.
+    """
+    try:
+        # 1단계: 기존 JWT 토큰 검증 시도
+        jwt_user = get_current_user_silent(request, db)
+        if jwt_user:
+            logger.debug(f"✅ User authenticated via JWT token: {jwt_user.email}")
+            return jwt_user
+        
+        # 2단계: Redis 세션 검증 시도 (로그인 후 access_token 쿠키가 없는 경우)
+        try:
+            from ..core.oauth_redis_integration import get_oauth_session_from_request
+            
+            # Redis 세션에서 사용자 정보 추출
+            session_data = get_oauth_session_from_request(request)
+            
+            if session_data:
+                # 세션에서 사용자 ID 추출
+                user_id = session_data.get('user_id') or session_data.get('id')
+                
+                if user_id:
+                    # 데이터베이스에서 사용자 조회
+                    user = get_user_by_id(db, user_id)
+                    
+                    if user and user.is_active:
+                        logger.info(f"✅ User authenticated via Redis session: {user.email} (session upgrade)")
+                        return user
+                    else:
+                        logger.warning(f"⚠️ User not found or inactive from Redis session: {user_id}")
+                else:
+                    logger.debug("🔍 No user_id in Redis session data")
+            else:
+                logger.debug("🔍 No Redis session found")
+        
+        except Exception as e:
+            logger.debug(f"🔍 Redis session validation failed (non-critical): {e}")
+            # Redis 세션 검증 실패는 OAuth 플로우를 방해하지 않음
+        
+        # 3단계: 두 방법 모두 실패한 경우 None 반환 (정상적인 OAuth 시나리오)
+        logger.debug("🔍 No authentication found (JWT or Redis) - proceeding with OAuth flow")
+        return None
+        
+    except Exception as e:
+        # 예외 발생 시에도 OAuth 플로우 계속 진행
+        logger.debug(f"🔍 Hybrid authentication failed: {e}")
+        return None
+
+
 def verify_service_token(token: str, required_scopes: Optional[list] = None) -> Dict[str, Any]:
     """
     서비스 토큰 검증 (Client Credentials Grant용)

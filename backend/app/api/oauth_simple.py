@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from ..database import get_db
 from ..models import User, Group
 from ..config import settings
-from ..utils.auth import get_current_user_optional, get_current_user_silent, verify_password, create_access_token
+from ..utils.auth import get_current_user_optional, get_current_user_silent, get_current_user_with_redis_session, verify_password, create_access_token
 from ..utils.logging_config import get_oauth_logger, log_oauth_event, SecurityDataFilter
 from ..services.user_switch_security_service import user_switch_security_service
 from ..core.oauth_redis_integration import (
@@ -762,7 +762,7 @@ def authorize(
     login_hint: Optional[str] = Query(None),     # Hint about user's login identifier
     acr_values: Optional[str] = Query(None),     # Authentication context class reference
     request: Request = None,
-    current_user: Optional[User] = Depends(get_current_user_silent),
+    current_user: Optional[User] = Depends(get_current_user_with_redis_session),
     db: Session = Depends(get_db)
 ):
     """
