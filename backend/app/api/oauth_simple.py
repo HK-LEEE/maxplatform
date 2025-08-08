@@ -955,8 +955,8 @@ def authorize(
                 # Don't force re-auth on Redis errors - gracefully degrade
                 logger.info(f"🔄 Worker {worker_id}: Continuing without Redis session validation due to error")
         
-        # 🎯 REFINED SOLUTION: 다른 사용자로 로그인 의도만 감지하여 강제 로그인
-        # 정상적인 SSO는 유지하면서, 명확한 사용자 전환 의도만 차단
+        # 🎯 OVERRIDE CLIENT PROMPT: 통합 SSO에서는 클라이언트가 보낸 prompt를 오버라이드
+        # 클라이언트가 prompt=login을 보내도 통합 SSO 상황에서는 무시
         
         # 특별한 파라미터로 다른 사용자로 로그인 의도 감지
         force_account_selection = request.query_params.get("force_account_selection") == "true"
@@ -970,8 +970,17 @@ def authorize(
                 logger.warning(f"🔥 Worker {worker_id}: Different user login attempt detected - current: {current_user.email}, requested: {login_hint}")
                 different_user_requested = True
         
-        # 🔥 다른 사용자로 로그인 의도가 명확한 경우만 강제 로그인
-        if current_user and (force_account_selection or switch_user_intent or different_user_requested):
+        # 🎯 통합 SSO 우선: 명확한 사용자 전환 의도가 없으면 prompt 무시
+        user_switch_intent = force_account_selection or switch_user_intent or different_user_requested
+        
+        if current_user and not user_switch_intent:
+            # 통합 SSO 상황: 클라이언트가 보낸 prompt=login 무시하고 자동 인증 허용
+            if prompt == "login":
+                logger.warning(f"🔄 Worker {worker_id}: OVERRIDING client prompt=login for SSO integration")
+                logger.info(f"🔄 Worker {worker_id}: User {current_user.email} authenticated, allowing SSO auto-login")
+                prompt = None  # 자동 인증 허용
+        elif current_user and user_switch_intent:
+            # 명확한 사용자 전환 의도가 있는 경우만 강제 로그인
             logger.warning(f"🔥 Worker {worker_id}: User switch intent detected - FORCING FRESH LOGIN")
             logger.info(f"🔥 Worker {worker_id}: force_account_selection={force_account_selection}, switch_user={switch_user_intent}, different_user={different_user_requested}")
             prompt = "login"  # 무조건 로그인 창 표시
