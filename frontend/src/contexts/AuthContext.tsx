@@ -22,6 +22,74 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'))
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  
+  // SSO: MAX Lab에 로그인 세션 동기화
+  const syncLoginToMaxLab = (accessToken: string, userData: User) => {
+    try {
+      console.log('🔄 SSO: Syncing login to MAX Lab...')
+      
+      // MAX Lab URL 설정 (개발/프로덕션 환경에 따라 다르게 설정)
+      const maxLabUrl = process.env.NODE_ENV === 'production' 
+        ? 'https://maxlab.dwchem.co.kr'
+        : 'http://localhost:3010'
+      
+      // iframe을 통해 MAX Lab에 토큰 전달
+      const iframe = document.createElement('iframe')
+      iframe.style.display = 'none'
+      iframe.src = `${maxLabUrl}/oauth/sync?token=${encodeURIComponent(accessToken)}&user=${encodeURIComponent(JSON.stringify(userData))}`
+      
+      // iframe 로드 후 자동 제거
+      iframe.onload = () => {
+        console.log('✅ SSO: MAX Lab sync iframe loaded')
+        setTimeout(() => {
+          document.body.removeChild(iframe)
+        }, 3000)
+      }
+      
+      iframe.onerror = () => {
+        console.warn('⚠️ SSO: Failed to load MAX Lab sync iframe')
+        document.body.removeChild(iframe)
+      }
+      
+      document.body.appendChild(iframe)
+    } catch (error) {
+      console.error('❌ SSO: Failed to sync with MAX Lab:', error)
+    }
+  }
+  
+  // SSO: MAX Lab에 로그아웃 알림
+  const syncLogoutToMaxLab = () => {
+    try {
+      console.log('🔄 SSO: Syncing logout to MAX Lab...')
+      
+      // MAX Lab URL 설정
+      const maxLabUrl = process.env.NODE_ENV === 'production' 
+        ? 'https://maxlab.dwchem.co.kr'
+        : 'http://localhost:3010'
+      
+      // iframe을 통해 MAX Lab에 로그아웃 알림
+      const iframe = document.createElement('iframe')
+      iframe.style.display = 'none'
+      iframe.src = `${maxLabUrl}/oauth/logout-sync`
+      
+      // iframe 로드 후 자동 제거
+      iframe.onload = () => {
+        console.log('✅ SSO: MAX Lab logout sync iframe loaded')
+        setTimeout(() => {
+          document.body.removeChild(iframe)
+        }, 2000)
+      }
+      
+      iframe.onerror = () => {
+        console.warn('⚠️ SSO: Failed to load MAX Lab logout sync iframe')
+        document.body.removeChild(iframe)
+      }
+      
+      document.body.appendChild(iframe)
+    } catch (error) {
+      console.error('❌ SSO: Failed to sync logout with MAX Lab:', error)
+    }
+  }
 
   useEffect(() => {
     const initAuth = async () => {
@@ -107,6 +175,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(userData)
       setIsAuthenticated(true)
       
+      // SSO: MAX Lab에 로그인 세션 동기화
+      syncLoginToMaxLab(access_token, userData)
+      
       // 로그인 후 원래 페이지로 리다이렉트
       const redirectPath = localStorage.getItem('redirectAfterLogin')
       if (redirectPath) {
@@ -141,7 +212,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(null)
       setIsAuthenticated(false)
       
-      // 3. Single Logout 수행 (OIDC End Session)
+      // 3. SSO: MAX Lab에 로그아웃 알림
+      syncLogoutToMaxLab()
+      
+      // 4. Single Logout 수행 (OIDC End Session)
       if (forceSingleLogout && currentToken) {
         // OIDC End Session Endpoint로 리다이렉트
         const logoutUrl = new URL(`${window.location.origin}/api/oauth/logout`)
