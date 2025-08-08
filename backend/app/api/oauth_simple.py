@@ -1895,8 +1895,11 @@ def handle_authorization_code_grant(
         # Prepare user data for Redis session
         user_data_for_session = {
             'id': str(user.id),
+            'user_id': str(user.id),  # Add user_id field for consistency
             'email': user.email,
-            'name': user.name or user.email,
+            'name': user.display_name or user.real_name or user.email,  # Fix: Use display_name/real_name instead of name
+            'real_name': user.real_name,
+            'display_name': user.display_name,
             'is_admin': user.is_admin,
             'is_active': user.is_active
         }

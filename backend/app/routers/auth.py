@@ -458,12 +458,12 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
         try:
             oauth_manager = get_oauth_redis_manager()
             if oauth_manager and oauth_manager.is_redis_available():
-                # Redis 세션 데이터 준비
+                # Redis 세션 데이터 준비 (User 모델 속성에 맞게 수정)
                 session_user_data = {
                     "id": str(user.id),
                     "user_id": str(user.id),
                     "email": user.email,
-                    "name": user.display_name or user.real_name,
+                    "name": user.display_name or user.real_name,  # Redis 세션용 name 필드
                     "real_name": user.real_name,
                     "display_name": user.display_name,
                     "is_admin": user.is_admin,
@@ -562,21 +562,24 @@ async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db))
 @router.post("/logout")
 async def logout(
     request: Request,
+    response: Response,
     refresh_token: str = None, 
     current_user: User = Depends(get_current_user), 
     db: Session = Depends(get_db)
 ):
     """
-    로그아웃 - Refresh Token 및 OAuth Access Token 무효화
+    로그아웃 - Refresh Token, OAuth Access Token 및 Redis 세션 무효화
     
     토큰 블랙리스트 처리:
     1. JWT Refresh Token 무효화
     2. OAuth Access Token 무효화
-    3. 관련 세션 종료
-    4. 로그아웃 이벤트 로깅
+    3. Redis 세션 종료
+    4. 세션 쿠키 정리
+    5. 로그아웃 이벤트 로깅
     """
     import hashlib
     from sqlalchemy import text
+    from ..core.redis_session import delete_all_user_sessions, get_session_store
     
     logout_stats = {
         "refresh_tokens_revoked": 0,
@@ -647,7 +650,38 @@ async def logout(
         except Exception as e:
             logger.warning(f"Failed to revoke all OAuth tokens: {str(e)}")
     
-    # 4. 로그아웃 이벤트 로깅
+    # 4. 🔥 CRITICAL: Redis 세션 삭제
+    try:
+        sessions_terminated = delete_all_user_sessions(str(current_user.id))
+        logout_stats["sessions_terminated"] = sessions_terminated
+        logger.info(f"✅ Redis sessions terminated for user {current_user.email}: {sessions_terminated}")
+    except Exception as e:
+        logger.error(f"❌ Failed to delete Redis sessions for user {current_user.email}: {e}")
+        # 세션 삭제 실패해도 로그아웃은 계속 진행
+    
+    # 5. 세션 쿠키 정리
+    try:
+        # OAuth 세션 쿠키들 삭제
+        response.delete_cookie("session_id", domain=None, path="/")
+        response.delete_cookie("session_token", domain=None, path="/")  
+        response.delete_cookie("user_id", domain=None, path="/")
+        response.delete_cookie("oauth_session", domain=None, path="/")
+        
+        # 도메인별 쿠키 삭제 (크로스 도메인 지원)
+        for domain in [".localhost", "localhost", ".dwchem.co.kr"]:
+            try:
+                response.delete_cookie("session_id", domain=domain, path="/")
+                response.delete_cookie("session_token", domain=domain, path="/")
+                response.delete_cookie("user_id", domain=domain, path="/")
+                response.delete_cookie("oauth_session", domain=domain, path="/")
+            except:
+                pass  # 도메인별 쿠키 삭제 실패는 무시
+        
+        logger.info(f"✅ Session cookies cleared for user {current_user.email}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to clear session cookies: {e}")
+    
+    # 6. 로그아웃 이벤트 로깅
     try:
         client_ip = request.client.host if request.client else None
         user_agent = request.headers.get("User-Agent", "")
