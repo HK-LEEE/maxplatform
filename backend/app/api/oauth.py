@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 import base64
+import json
+import time
 from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
 
@@ -15,11 +17,13 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, or_, delete, text
 from pydantic import BaseModel, Field, HttpUrl
+from jose import jwt, JWTError
 
 from ..database import get_db
 from ..models import User, Group
 from ..config import settings
 from ..utils.auth import get_current_user_optional, verify_password, create_access_token
+from ..core.redis_session import get_session_store, create_user_session, get_user_session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -94,6 +98,129 @@ def verify_code_challenge(code_verifier: str, code_challenge: str, method: str =
         generated_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('ascii').rstrip('=')
         return generated_challenge == code_challenge
     return False
+
+
+async def verify_jwt_and_sync_redis(request: Request, db: Session) -> Optional[User]:
+    """
+    JWT 토큰 검증 및 Redis 세션 자동 복구
+    OAuth 무한 루프 문제 해결을 위한 핵심 함수
+    """
+    try:
+        # Extract JWT token from multiple sources
+        token = None
+        
+        # 1. Check Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        
+        # 2. Check cookies
+        if not token:
+            token = request.cookies.get("access_token")
+        
+        # 3. Check query parameters (for OAuth flow)
+        if not token:
+            token = request.query_params.get("token")
+        
+        if not token:
+            return None
+        
+        # Verify JWT token
+        try:
+            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+            user_id = payload.get("sub") or payload.get("user_id")
+            
+            if not user_id:
+                logger.warning("JWT token missing user_id/sub field")
+                return None
+            
+            # Get user from database
+            user = db.query(User).filter(User.id == user_id).first()
+            
+            if not user:
+                logger.warning(f"User {user_id} not found in database despite valid JWT")
+                return None
+            
+            # Check Redis session
+            try:
+                session_store = get_session_store()
+                
+                # Try to get existing Redis session for this user
+                user_sessions_key = f"maxplatform_session_user:{user_id}"
+                existing_sessions = session_store.redis_client.smembers(user_sessions_key)
+                
+                redis_session_exists = False
+                for session_id in existing_sessions:
+                    session_data = session_store.get_session(session_id)
+                    if session_data:
+                        redis_session_exists = True
+                        logger.info(f"✅ Found existing Redis session for user {user.email}")
+                        break
+                
+                if not redis_session_exists:
+                    # 🔥 핵심 수정: JWT는 유효하지만 Redis 세션이 없는 경우 자동 생성
+                    logger.warning(f"JWT valid but no Redis session for user {user_id}, creating new session")
+                    
+                    session_data = {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "name": user.real_name or user.display_name or user.email,
+                        "is_admin": user.is_admin,
+                        "is_active": user.is_active,
+                        "groups": [{"id": str(g.id), "name": g.name} for g in user.groups] if user.groups else [],
+                        "roles": [{"id": str(r.id), "name": r.name} for r in user.roles] if user.roles else [],
+                        "created_at": datetime.utcnow().isoformat(),
+                        "source": "jwt_recovery",
+                        "jwt_exp": payload.get("exp")
+                    }
+                    
+                    # Calculate TTL from JWT expiration
+                    ttl = payload.get("exp", 0) - int(time.time())
+                    if ttl > 0:
+                        # Override session timeout with JWT remaining time
+                        session_store.session_timeout = ttl
+                        
+                    session_id = create_user_session(session_data)
+                    logger.info(f"✅ Auto-recovered Redis session {session_id} for user {user.email}")
+                    
+                    # Store token in Redis session
+                    session_store.store_oauth_tokens(session_id, {
+                        "access_token": token,
+                        "token_type": "Bearer",
+                        "expires_at": payload.get("exp"),
+                        "recovered": True
+                    })
+                
+            except Exception as redis_error:
+                # Redis 오류가 있어도 JWT가 유효하면 계속 진행
+                logger.error(f"Redis session error (non-fatal): {redis_error}")
+            
+            return user
+            
+        except jwt.ExpiredSignatureError:
+            logger.debug("JWT token expired")
+            
+            # JWT 만료 시 Redis 세션도 정리
+            try:
+                session_store = get_session_store()
+                payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm], options={"verify_exp": False})
+                user_id = payload.get("sub") or payload.get("user_id")
+                if user_id:
+                    deleted_count = session_store.delete_user_sessions(user_id)
+                    if deleted_count > 0:
+                        logger.info(f"Cleaned up {deleted_count} expired Redis sessions for user {user_id}")
+            except:
+                pass
+                
+            return None
+            
+        except JWTError as e:
+            logger.debug(f"JWT validation error: {e}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error in verify_jwt_and_sync_redis: {e}")
+        return None
 
 
 def validate_client(
@@ -206,7 +333,7 @@ def log_oauth_action(
 
 # OAuth endpoints
 @router.get("/authorize")
-def authorize(
+async def authorize(
     response_type: str = Query(...),
     client_id: str = Query(...),
     redirect_uri: str = Query(...),
@@ -219,8 +346,8 @@ def authorize(
     db: Session = Depends(get_db)
 ):
     """
-    OAuth 2.0 Authorization Endpoint
-    Initiates the authorization code flow
+    OAuth 2.0 Authorization Endpoint with Redis Session Auto-Recovery
+    Initiates the authorization code flow and manages JWT-Redis session sync
     """
     try:
         # Validate request
@@ -230,10 +357,15 @@ def authorize(
         # Validate client and redirect URI
         client = validate_client(client_id, None, redirect_uri, db)
         
+        # JWT 토큰 검증 및 Redis 세션 동기화
+        jwt_user = await verify_jwt_and_sync_redis(request, db)
+        
+        # Use JWT user if available, otherwise use current_user
+        authenticated_user = jwt_user or current_user
+        
         # Check if user is authenticated
-        if not current_user:
+        if not authenticated_user:
             # Store OAuth params in session and redirect to login
-            # For now, return error since we need to implement session storage
             error_uri = f"{redirect_uri}?error=login_required"
             if state:
                 error_uri += f"&state={state}"
@@ -249,7 +381,7 @@ def authorize(
         # Check if user has already authorized this client
         session_result = db.execute(
             text("SELECT granted_scopes FROM oauth_sessions WHERE user_id = :user_id AND client_id = :client_id"),
-            {"user_id": str(current_user.id), "client_id": client_id}
+            {"user_id": str(authenticated_user.id), "client_id": client_id}
         )
         existing_session = session_result.first()
         
@@ -259,7 +391,7 @@ def authorize(
         if existing_session and all(s in existing_session.granted_scopes for s in requested_scopes):
             # Create authorization code
             code = create_authorization_code_record(
-                client_id, str(current_user.id), redirect_uri, scope,
+                client_id, str(authenticated_user.id), redirect_uri, scope,
                 code_challenge, code_challenge_method, db
             )
             
@@ -270,7 +402,7 @@ def authorize(
                     SET last_used_at = NOW() 
                     WHERE user_id = :user_id AND client_id = :client_id
                 """),
-                {"user_id": str(current_user.id), "client_id": client_id}
+                {"user_id": str(authenticated_user.id), "client_id": client_id}
             )
             db.commit()
             
@@ -280,7 +412,7 @@ def authorize(
                 success_uri += f"&state={state}"
             
             log_oauth_action(
-                "authorize", client_id, str(current_user.id), True,
+                "authorize", client_id, str(authenticated_user.id), True,
                 None, None, request, db
             )
             
@@ -299,7 +431,7 @@ def authorize(
                     VALUES (:user_id, :client_id, :granted_scopes)
                 """),
                 {
-                    "user_id": str(current_user.id),
+                    "user_id": str(authenticated_user.id),
                     "client_id": client_id,
                     "granted_scopes": requested_scopes
                 }
@@ -314,7 +446,7 @@ def authorize(
                     WHERE user_id = :user_id AND client_id = :client_id
                 """),
                 {
-                    "user_id": str(current_user.id),
+                    "user_id": str(authenticated_user.id),
                     "client_id": client_id,
                     "granted_scopes": all_scopes
                 }
@@ -322,7 +454,7 @@ def authorize(
         
         # Create authorization code
         code = create_authorization_code_record(
-            client_id, str(current_user.id), redirect_uri, scope,
+            client_id, str(authenticated_user.id), redirect_uri, scope,
             code_challenge, code_challenge_method, db
         )
         
@@ -334,7 +466,7 @@ def authorize(
             success_uri += f"&state={state}"
         
         log_oauth_action(
-            "authorize", client_id, str(current_user.id), True,
+            "authorize", client_id, str(authenticated_user.id), True,
             None, None, request, db
         )
         

@@ -59,6 +59,8 @@ from .tasks.key_rotation import init_key_rotation_task
 from .tasks.nonce_cleanup import init_nonce_cleanup_task
 # Import session management
 from .core.session_init import startup_session_management
+from .middleware.session_middleware import setup_session_middleware
+from .services.session_monitor import start_session_monitoring, stop_session_monitoring
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,6 +70,10 @@ async def lifespan(app: FastAPI):
     
     # Initialize Redis session management for OAuth SSO consistency
     await startup_session_management()
+    
+    # Start session monitoring service for JWT-Redis consistency
+    await start_session_monitoring()
+    main_logger.info("Session monitoring service started")
     
     # Initialize OIDC background tasks
     init_key_rotation_task()
@@ -79,6 +85,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     main_logger.info("Shutting down application services...")
+    
+    # Stop session monitoring
+    await stop_session_monitoring()
+    main_logger.info("Session monitoring service stopped")
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -123,6 +133,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session Middleware 추가 (JWT-Redis 세션 동기화)
+setup_session_middleware(app)
+main_logger.info("Session middleware configured for JWT-Redis synchronization")
 
 # 모든 모델 import 후 데이터베이스 테이블 생성
 main_logger.info("Creating database tables")

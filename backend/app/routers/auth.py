@@ -23,6 +23,7 @@ from ..utils.auth import get_current_user, verify_password, get_password_hash, c
 # Import Redis session management for OAuth SSO consistency
 from ..core.oauth_redis_integration import get_oauth_redis_manager, set_oauth_session_cookies
 from ..core.redis_session import create_user_session
+from ..services.auth_service import get_auth_service
 
 # 환경변수 로드
 load_dotenv()
@@ -410,90 +411,44 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
             db.rollback()
             # 계속 진행 (기록 업데이트 실패가 로그인을 막지 않음)
         
-        # JWT 토큰 생성 (그룹 정보 포함)
-        access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-        refresh_token_expires = timedelta(days=settings.refresh_token_expire_days)
+        # JWT 토큰 생성 및 Redis 세션 동기화 (AuthService 사용)
+        auth_service = get_auth_service()
         
-        # 토큰에 포함할 데이터 준비
-        token_data = {
-            "sub": str(user.id),
-            "user_id": str(user.id),
-            "email": user.email,
-            "is_admin": user.is_admin
-        }
-        
-        # 그룹 정보 추가
-        if user.group:
-            token_data["group_id"] = str(user.group.id)
-            token_data["group_name"] = user.group.name
-        
-        # 역할 정보 추가
-        if user.role:
-            token_data["role_id"] = str(user.role.id)
-            token_data["role_name"] = user.role.name
-        
-        access_token = create_access_token(
-            data=token_data, 
-            expires_delta=access_token_expires
-        )
-        
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id)}
-        )
-        
-        logger.info(f"JWT 토큰 생성 완료: {user.email}")
-        
-        # Refresh Token 저장
         try:
-            refresh_expires_at = datetime.utcnow() + refresh_token_expires
-            store_refresh_token(db, user.id, refresh_token, refresh_expires_at, request)
-            logger.info(f"Refresh Token 저장 완료: {user.email}")
-        except Exception as e:
-            logger.error(f"Refresh Token 저장 실패: {e}")
-            # Refresh Token 저장 실패시에도 로그인 진행
-        
-        # 🔧 OAuth SSO 일관성을 위한 Redis 세션 생성
-        redis_session_created = False
-        redis_session_id = None
-        try:
-            oauth_manager = get_oauth_redis_manager()
-            if oauth_manager and oauth_manager.is_redis_available():
-                # Redis 세션 데이터 준비 (User 모델 속성에 맞게 수정)
-                session_user_data = {
-                    "id": str(user.id),
-                    "user_id": str(user.id),
-                    "email": user.email,
-                    "name": user.display_name or user.real_name,  # Redis 세션용 name 필드
-                    "real_name": user.real_name,
-                    "display_name": user.display_name,
-                    "is_admin": user.is_admin,
-                    "login_method": "standard_login"  # OAuth와 구분
-                }
-                
-                # 그룹 정보 추가 (있는 경우)
-                if user.group:
-                    session_user_data["group_id"] = str(user.group.id)
-                    session_user_data["group_name"] = user.group.name
-                
-                # Redis 세션 생성
-                redis_session_id = create_user_session(session_user_data)
-                
-                if redis_session_id:
-                    # 세션 쿠키 설정 (크로스 도메인 OAuth 호환성을 위해)
-                    set_oauth_session_cookies(response, redis_session_id, session_user_data)
-                    redis_session_created = True
-                    logger.info(f"🔒 Redis 세션 및 쿠키 설정 완료: {user.email} (세션 ID: {redis_session_id[:8]}...)")
-                else:
-                    logger.warning(f"⚠️ Redis 세션 생성 실패: {user.email}")
+            # AuthService를 통한 토큰 생성 및 Redis 세션 자동 동기화
+            token_result = await auth_service.create_tokens_with_redis_sync(user, db)
+            
+            access_token = token_result["access_token"]
+            refresh_token = token_result["refresh_token"]
+            redis_session_id = token_result.get("session_id")
+            
+            logger.info(f"JWT 토큰 생성 및 Redis 세션 동기화 완료: {user.email}")
+            
+            if redis_session_id:
+                # 세션 쿠키 설정 (크로스 도메인 OAuth 호환성을 위해)
+                try:
+                    oauth_manager = get_oauth_redis_manager()
+                    if oauth_manager:
+                        session_user_data = {
+                            "id": str(user.id),
+                            "email": user.email,
+                            "name": user.display_name or user.real_name,
+                            "is_admin": user.is_admin
+                        }
+                        set_oauth_session_cookies(response, redis_session_id, session_user_data)
+                        logger.info(f"🔒 Redis 세션 및 쿠키 설정 완료: {user.email}")
+                except Exception as e:
+                    logger.error(f"쿠키 설정 실패: {e}")
             else:
-                logger.warning(f"⚠️ Redis 세션 매니저 사용 불가: {user.email}")
+                logger.warning(f"⚠️ Redis 세션 생성 실패 (JWT만 사용): {user.email}")
         except Exception as e:
-            logger.error(f"❌ Redis 세션 생성 중 오류: {user.email} - {e}")
-            import traceback
-            logger.error(f"상세 오류: {traceback.format_exc()}")
-            # Redis 세션 실패가 로그인을 방해하지 않도록 계속 진행
+            logger.error(f"토큰 생성 실패: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="토큰 생성 중 오류가 발생했습니다."
+            )
         
-        logger.info(f"로그인 성공: {user.email} (Redis 세션: {'✅' if redis_session_created else '❌'})")
+        logger.info(f"로그인 성공: {user.email}")
         
         return {
             "access_token": access_token,
