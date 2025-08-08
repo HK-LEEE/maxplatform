@@ -22,6 +22,14 @@ from ..config import settings
 from ..utils.auth import get_current_user_optional, get_current_user_silent, verify_password, create_access_token
 from ..utils.logging_config import get_oauth_logger, log_oauth_event, SecurityDataFilter
 from ..services.user_switch_security_service import user_switch_security_service
+from ..core.oauth_redis_integration import (
+    get_oauth_session_from_request,
+    validate_oauth_redis_session,
+    create_oauth_redis_session,
+    cleanup_oauth_redis_sessions,
+    set_oauth_session_cookies,
+    clear_oauth_session_cookies
+)
 
 logger = get_oauth_logger()
 
@@ -797,6 +805,30 @@ def authorize(
         
         # Validate client and redirect URI
         client = validate_client(client_id, None, redirect_uri, db)
+        
+        # 🔄 Redis Session Validation: Check if current authentication is backed by valid Redis session
+        if current_user:
+            try:
+                redis_session = get_oauth_session_from_request(request)
+                
+                if redis_session:
+                    # Validate that Redis session matches current client
+                    session_client_id = redis_session.get('oauth_client_id')
+                    session_user_id = redis_session.get('user_id')
+                    
+                    if session_client_id != client_id or str(session_user_id) != str(current_user.id):
+                        logger.warning(f"🚨 Worker {worker_id}: Redis session mismatch - client: {session_client_id} vs {client_id}, user: {session_user_id} vs {current_user.id}")
+                        current_user = None  # Force re-authentication
+                    else:
+                        logger.info(f"✅ Worker {worker_id}: Redis session validated for user {current_user.email} and client {client_id}")
+                else:
+                    logger.warning(f"⚠️ Worker {worker_id}: User authenticated but no Redis session found - forcing re-authentication")
+                    current_user = None  # Force re-authentication to create Redis session
+                    
+            except Exception as e:
+                logger.error(f"❌ Worker {worker_id}: Redis session validation failed: {e}")
+                # Don't force re-auth on Redis errors - gracefully degrade
+                logger.info(f"🔄 Worker {worker_id}: Continuing without Redis session validation due to error")
         
         # Check if user is authenticated
         if not current_user:
@@ -1736,6 +1768,50 @@ def handle_authorization_code_grant(
         response_data["id_token"] = id_token
         logger.info(f"ID token generated for user {user.id} with client {client_id}")
     
+    # 🔄 Create Redis Session: Establish centralized session for multi-worker consistency
+    try:
+        # Prepare user data for Redis session
+        user_data_for_session = {
+            'id': str(user.id),
+            'email': user.email,
+            'name': user.name or user.email,
+            'is_admin': user.is_admin,
+            'is_active': user.is_active
+        }
+        
+        # Add group information if available
+        if user.group_id and user.group:
+            user_data_for_session.update({
+                'group_id': str(user.group_id),
+                'group_name': user.group.name
+            })
+        
+        # Add role information if available  
+        if user.role_id and user.role:
+            user_data_for_session.update({
+                'role_id': str(user.role_id),
+                'role_name': user.role.name
+            })
+        
+        # Create Redis session with OAuth context
+        granted_scopes = auth_code_dict['scope'].split() if auth_code_dict['scope'] else ['read:profile']
+        redis_session_id = create_oauth_redis_session(
+            user_data=user_data_for_session,
+            client_id=client_id,
+            granted_scopes=granted_scopes,
+            request=request
+        )
+        
+        if redis_session_id:
+            logger.info(f"✅ Redis session created for OAuth token: {redis_session_id} (user: {user.email}, client: {client_id})")
+        else:
+            logger.warning(f"⚠️ Redis session creation failed for user {user.email} and client {client_id} - continuing with database-only session")
+            
+    except Exception as redis_error:
+        logger.error(f"❌ Redis session creation error: {redis_error}")
+        # Don't fail the token creation if Redis fails - graceful degradation
+        logger.info(f"🔄 Continuing with token creation despite Redis session failure")
+    
     # Return extended response class that includes optional id_token
     return response_data
 
@@ -2345,70 +2421,242 @@ async def oauth_logout(
     db: Session = Depends(get_db)
 ):
     """
-    OIDC RP-Initiated Logout Endpoint (RFC)
+    ENHANCED OIDC RP-Initiated Logout Endpoint
     
-    정석적인 OIDC 로그아웃 처리:
-    1. 현재 사용자 세션 확인
-    2. OAuth/OIDC 토큰 무효화 (Access + Refresh + ID tokens)
-    3. 사용자 세션 종료
-    4. 클라이언트별 세션 정리
-    5. 로그아웃 감사 로그
-    6. 안전한 리다이렉트
+    Enhanced logout process with better session handling:
+    1. Multiple user identification methods (token, cookie, client_id)
+    2. Aggressive token cleanup across all possible storage locations  
+    3. Cookie cleanup with proper domain/path settings
+    4. Client-side coordination through response headers
+    5. Comprehensive error handling and logging
     """
     from sqlalchemy import text
-    from ..utils.auth import get_current_user_silent
+    from ..utils.auth import get_current_user_silent, get_current_user_from_token
     
     logout_stats = {
         "access_tokens_revoked": 0,
-        "refresh_tokens_revoked": 0,
+        "refresh_tokens_revoked": 0, 
         "sessions_terminated": 0,
-        "id_tokens_invalidated": 0
+        "id_tokens_invalidated": 0,
+        "cookies_cleared": 0
     }
     
-    # 1. 현재 사용자 확인 (토큰 기반 또는 세션 기반)
+    # Enhanced user identification with multiple fallback methods
     current_user = None
     user_id_from_token = None
+    access_token_value = None
     
-    # ID Token Hint에서 사용자 정보 추출
+    logger.info(f"🔐 Starting enhanced logout process - client_id: {client_id}")
+    
+    # Method 1: ID Token Hint (most reliable for logout)
     if id_token_hint:
         try:
             from jose import jwt
-            # ID Token 검증 없이 claims만 추출 (로그아웃용)
             unverified_claims = jwt.get_unverified_claims(id_token_hint)
             user_id_from_token = unverified_claims.get("sub")
-            logger.info(f"🔐 Logout: ID token hint provides user_id: {user_id_from_token}")
+            logger.info(f"🔐 User ID from token hint: {user_id_from_token}")
         except Exception as e:
             logger.warning(f"Failed to parse id_token_hint: {e}")
     
-    # Authorization Header에서 사용자 확인
+    # Method 2: Authorization Header
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         try:
+            access_token_value = auth_header.split(" ")[1]
             current_user = await get_current_user_silent(request=request, db=db)
             if current_user:
-                logger.info(f"🔐 Logout: Current user from token: {current_user.email}")
+                logger.info(f"🔐 User from auth header: {current_user.email}")
         except Exception as e:
             logger.debug(f"No valid token in Authorization header: {e}")
     
-    # 쿠키에서 액세스 토큰 확인 (많은 웹 앱에서 사용)
-    if not current_user:
-        try:
-            access_token_cookie = request.cookies.get("access_token")
-            if access_token_cookie:
-                # 쿠키의 액세스 토큰으로 사용자 확인
-                from ..utils.auth import get_current_user_from_token
-                current_user = get_current_user_from_token(access_token_cookie, db)
-                if current_user:
-                    logger.info(f"🔐 Logout: Current user from cookie: {current_user.email}")
-        except Exception as e:
-            logger.debug(f"No valid access token in cookies: {e}")
+    # Method 3: Cookie-based identification (CRITICAL for web apps)
+    if not current_user and not access_token_value:
+        cookie_names = ["access_token", "token", "auth_token", "jwt_token"]
+        for cookie_name in cookie_names:
+            try:
+                cookie_value = request.cookies.get(cookie_name)
+                if cookie_value:
+                    logger.info(f"🔐 Found token in cookie: {cookie_name}")
+                    current_user = get_current_user_from_token(cookie_value, db)
+                    if current_user:
+                        access_token_value = cookie_value
+                        logger.info(f"🔐 User from cookie {cookie_name}: {current_user.email}")
+                        break
+                    else:
+                        # Even if token is invalid, we should clear the cookie
+                        logout_stats["cookies_cleared"] += 1
+            except Exception as e:
+                logger.debug(f"Cookie {cookie_name} validation failed: {e}")
+                logout_stats["cookies_cleared"] += 1
     
-    # 클라이언트 ID가 있으면 해당 클라이언트의 모든 활성 세션을 무효화 (최후 수단)
-    if not current_user and not user_id_from_token and client_id:
-        logger.info(f"🔐 Logout: No user detected, attempting client-wide logout for {client_id}")
-        # 클라이언트별 전체 로그아웃 (보안상 주의 - 운영환경에서는 제한적으로 사용)
+    # Method 4: Database-based user lookup (fallback for lost sessions)
+    target_user_id = None
+    if current_user:
+        target_user_id = str(current_user.id)
+    elif user_id_from_token:
+        target_user_id = user_id_from_token
+    elif client_id:
+        # Last resort: find the most recent active session for this client
         try:
-            # 해당 client_id의 모든 활성 토큰을 무효화
+            recent_session = db.execute(
+                text("""
+                    SELECT user_id FROM oauth_access_tokens 
+                    WHERE client_id = :client_id 
+                    AND revoked_at IS NULL 
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                """),
+                {"client_id": client_id}
+            ).first()
+            
+            if recent_session:
+                target_user_id = recent_session.user_id
+                logger.info(f"🔐 Found user from recent session: {target_user_id}")
+        except Exception as e:
+            logger.error(f"Failed to find user from recent sessions: {e}")
+    
+    if not target_user_id:
+        logger.warning(f"🔐 No user context found for logout - proceeding with cookie cleanup only")
+    
+    # Enhanced Token Revocation Process
+    try:
+        # 1. Revoke specific access token if we have it
+        if access_token_value:
+            try:
+                from ..utils.auth import generate_token_hash
+                token_hash = generate_token_hash(access_token_value)
+                
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout_direct'
+                        WHERE token_hash = :token_hash 
+                        AND revoked_at IS NULL
+                    """),
+                    {"token_hash": token_hash}
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+                logger.info(f"🔐 Revoked direct token: {result.rowcount} tokens")
+            except Exception as e:
+                logger.error(f"Failed to revoke direct access token: {e}")
+        
+        # 2. Revoke all user tokens if we have user context
+        if target_user_id:
+            # Access tokens
+            if client_id:
+                # Client-specific revocation
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout_client'
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id, "client_id": client_id}
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+            else:
+                # All clients
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_access_tokens 
+                        SET revoked_at = NOW(),
+                            revocation_reason = 'oidc_logout_all'
+                        WHERE user_id = :user_id 
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["access_tokens_revoked"] += result.rowcount
+            
+            # Refresh tokens  
+            if client_id:
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_refresh_tokens 
+                        SET revoked_at = NOW(),
+                            token_status = 'revoked'
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id, "client_id": client_id}
+                )
+                logout_stats["refresh_tokens_revoked"] += result.rowcount
+            else:
+                result = db.execute(
+                    text("""
+                        UPDATE oauth_refresh_tokens 
+                        SET revoked_at = NOW(),
+                            token_status = 'revoked'
+                        WHERE user_id = :user_id 
+                        AND revoked_at IS NULL
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["refresh_tokens_revoked"] += result.rowcount
+            
+            # OAuth sessions
+            if client_id:
+                result = db.execute(
+                    text("""
+                        DELETE FROM oauth_sessions 
+                        WHERE user_id = :user_id 
+                        AND client_id = :client_id
+                    """),
+                    {"user_id": target_user_id, "client_id": client_id}
+                )
+                logout_stats["sessions_terminated"] += result.rowcount
+            else:
+                result = db.execute(
+                    text("""
+                        DELETE FROM oauth_sessions 
+                        WHERE user_id = :user_id
+                    """),
+                    {"user_id": target_user_id}
+                )
+                logout_stats["sessions_terminated"] += result.rowcount
+            
+            # Legacy JWT refresh tokens
+            try:
+                from ..models.refresh_token import RefreshToken
+                if current_user:
+                    result = db.query(RefreshToken).filter(
+                        RefreshToken.user_id == current_user.id,
+                        RefreshToken.is_active == True
+                    ).update({
+                        "is_active": False,
+                        "is_revoked": True
+                    })
+                    logout_stats["refresh_tokens_revoked"] += result
+            except Exception as e:
+                logger.error(f"Failed to revoke JWT refresh tokens: {e}")
+            
+            # 🔄 Redis Session Cleanup: Remove centralized sessions for multi-worker consistency
+            try:
+                redis_cleanup_count = cleanup_oauth_redis_sessions(
+                    user_id=str(target_user_id),
+                    client_id=client_id if client_id else None
+                )
+                
+                if redis_cleanup_count > 0:
+                    logger.info(f"✅ Cleaned up {redis_cleanup_count} Redis sessions for user {target_user_id}")
+                    logout_stats["sessions_terminated"] += redis_cleanup_count
+                else:
+                    logger.debug(f"🔍 No Redis sessions found for user {target_user_id}")
+                    
+            except Exception as redis_cleanup_error:
+                logger.error(f"❌ Redis session cleanup error for user {target_user_id}: {redis_cleanup_error}")
+                # Don't fail the logout if Redis cleanup fails - graceful degradation
+                logger.info(f"🔄 Continuing with logout despite Redis cleanup failure")
+        
+        # 3. Client-wide cleanup as final fallback
+        elif client_id:
+            logger.info(f"🔐 Performing client-wide cleanup for: {client_id}")
+            
             result = db.execute(
                 text("""
                     UPDATE oauth_access_tokens 
@@ -2421,7 +2669,6 @@ async def oauth_logout(
             )
             logout_stats["access_tokens_revoked"] += result.rowcount
             
-            # 해당 client_id의 모든 refresh 토큰 무효화
             result = db.execute(
                 text("""
                     UPDATE oauth_refresh_tokens 
@@ -2434,7 +2681,6 @@ async def oauth_logout(
             )
             logout_stats["refresh_tokens_revoked"] += result.rowcount
             
-            # 해당 client_id의 모든 세션 삭제
             result = db.execute(
                 text("""
                     DELETE FROM oauth_sessions 
@@ -2443,241 +2689,41 @@ async def oauth_logout(
                 {"client_id": client_id}
             )
             logout_stats["sessions_terminated"] += result.rowcount
-            
-            logger.info(f"🔐 Client-wide logout for {client_id}: {logout_stats}")
-            
-        except Exception as e:
-            logger.error(f"Failed client-wide logout: {str(e)}")
-        
-        # 클라이언트 로그아웃 처리 완료 후 바로 리다이렉트
-        try:
-            db.commit()
-        except Exception as e:
-            logger.error(f"Failed to commit client logout: {str(e)}")
-            db.rollback()
-            
-        # 리다이렉트 준비
-        redirect_url = post_logout_redirect_uri or f"{settings.max_platform_frontend_url}/login?logout=success"
-        if state:
-            separator = "&" if "?" in redirect_url else "?"
-            redirect_url = f"{redirect_url}{separator}state={state}"
-        
-        logger.info(f"🔐 Client-wide logout completed: {logout_stats}")
-        logger.info(f"🔐 Redirecting to: {redirect_url}")
-        
-        # 쿠키 정리 및 리다이렉트
-        response = RedirectResponse(url=redirect_url, status_code=302)
-        
-        # 클라이언트 저장소 정리를 위한 헤더 추가
-        response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
-        response.headers["X-Logout-Complete"] = "true"
-        response.headers["X-Clear-Storage"] = "localStorage,sessionStorage,indexedDB"
-        
-        cookies_to_clear = [
-            "access_token", "refresh_token", "csrf_token", 
-            "session_token", "session_id", "auth_token",
-            "__Secure-access_token", "__Secure-refresh_token"
-        ]
-        
-        for cookie_name in cookies_to_clear:
-            response.delete_cookie(
-                cookie_name, 
-                path="/",
-                domain=None,
-                secure=False,
-                httponly=True,
-                samesite="lax"
-            )
-        
-        return response
     
-    # 2. 토큰 무효화 (Access Tokens)
-    if current_user or user_id_from_token:
-        target_user_id = str(current_user.id) if current_user else user_id_from_token
-        
-        try:
-            # 현재 Access Token 무효화 (Authorization Header)
-            if auth_header.startswith("Bearer "):
-                access_token = auth_header.split(" ")[1]
-                token_hash = generate_token_hash(access_token)
-                
-                result = db.execute(
-                    text("""
-                        UPDATE oauth_access_tokens 
-                        SET revoked_at = NOW(),
-                            revocation_reason = 'oidc_logout'
-                        WHERE token_hash = :token_hash 
-                        AND user_id = :user_id
-                        AND revoked_at IS NULL
-                    """),
-                    {
-                        "token_hash": token_hash,
-                        "user_id": target_user_id
-                    }
-                )
-                logout_stats["access_tokens_revoked"] += result.rowcount
-            
-            # 클라이언트별 토큰 무효화 (client_id 제공 시)
-            if client_id:
-                result = db.execute(
-                    text("""
-                        UPDATE oauth_access_tokens 
-                        SET revoked_at = NOW(),
-                            revocation_reason = 'oidc_logout_client'
-                        WHERE user_id = :user_id 
-                        AND client_id = :client_id
-                        AND revoked_at IS NULL
-                    """),
-                    {
-                        "user_id": target_user_id,
-                        "client_id": client_id
-                    }
-                )
-                logout_stats["access_tokens_revoked"] += result.rowcount
-            else:
-                # 모든 클라이언트의 토큰 무효화
-                result = db.execute(
-                    text("""
-                        UPDATE oauth_access_tokens 
-                        SET revoked_at = NOW(),
-                            revocation_reason = 'oidc_logout_all'
-                        WHERE user_id = :user_id 
-                        AND revoked_at IS NULL
-                    """),
-                    {"user_id": target_user_id}
-                )
-                logout_stats["access_tokens_revoked"] += result.rowcount
-                
-        except Exception as e:
-            logger.error(f"Failed to revoke access tokens: {str(e)}")
-    
-    # 3. Refresh Token 무효화
-    if current_user or user_id_from_token:
-        target_user_id = str(current_user.id) if current_user else user_id_from_token
-        
-        try:
-            if client_id:
-                # 특정 클라이언트의 Refresh Token만 무효화
-                result = db.execute(
-                    text("""
-                        UPDATE oauth_refresh_tokens 
-                        SET revoked_at = NOW(),
-                            token_status = 'revoked'
-                        WHERE user_id = :user_id 
-                        AND client_id = :client_id
-                        AND revoked_at IS NULL
-                    """),
-                    {
-                        "user_id": target_user_id,
-                        "client_id": client_id
-                    }
-                )
-                logout_stats["refresh_tokens_revoked"] += result.rowcount
-            else:
-                # 모든 클라이언트의 Refresh Token 무효화
-                result = db.execute(
-                    text("""
-                        UPDATE oauth_refresh_tokens 
-                        SET revoked_at = NOW(),
-                            token_status = 'revoked'
-                        WHERE user_id = :user_id 
-                        AND revoked_at IS NULL
-                    """),
-                    {"user_id": target_user_id}
-                )
-                logout_stats["refresh_tokens_revoked"] += result.rowcount
-                
-        except Exception as e:
-            logger.error(f"Failed to revoke refresh tokens: {str(e)}")
-    
-    # 4. OAuth 세션 종료
-    if current_user or user_id_from_token:
-        target_user_id = str(current_user.id) if current_user else user_id_from_token
-        
-        try:
-            if client_id:
-                # 특정 클라이언트 세션만 종료
-                result = db.execute(
-                    text("""
-                        DELETE FROM oauth_sessions 
-                        WHERE user_id = :user_id 
-                        AND client_id = :client_id
-                    """),
-                    {
-                        "user_id": target_user_id,
-                        "client_id": client_id
-                    }
-                )
-                logout_stats["sessions_terminated"] += result.rowcount
-            else:
-                # 모든 OAuth 세션 종료
-                result = db.execute(
-                    text("""
-                        DELETE FROM oauth_sessions 
-                        WHERE user_id = :user_id
-                    """),
-                    {"user_id": target_user_id}
-                )
-                logout_stats["sessions_terminated"] += result.rowcount
-                
-        except Exception as e:
-            logger.error(f"Failed to terminate OAuth sessions: {str(e)}")
-    
-    # 5. JWT Refresh Token 무효화 (기존 auth 시스템과 연동)
-    if current_user:
-        try:
-            from ..models.refresh_token import RefreshToken
-            result = db.query(RefreshToken).filter(
-                RefreshToken.user_id == current_user.id,
-                RefreshToken.is_active == True
-            ).update({
-                "is_active": False,
-                "is_revoked": True
-            })
-            logout_stats["refresh_tokens_revoked"] += result
-            
-        except Exception as e:
-            logger.error(f"Failed to revoke JWT refresh tokens: {str(e)}")
-    
-    try:
+        # Commit all token changes
         db.commit()
-    except Exception as e:
-        logger.error(f"Failed to commit logout transaction: {str(e)}")
-        db.rollback()
-    
-    # 6. 로그아웃 감사 로그
-    try:
-        client_ip = request.client.host if request.client else None
-        user_agent = request.headers.get("User-Agent", "")
+        logger.info(f"🔐 Token revocation completed: {logout_stats}")
         
+    except Exception as e:
+        logger.error(f"Failed to revoke tokens: {e}")
+        db.rollback()
+        # Continue with cookie cleanup even if token revocation fails
+    
+    # Enhanced Logout Audit Log
+    try:
         log_oauth_action(
-            action="oidc_logout",
+            action="oidc_logout_enhanced",
             client_id=client_id,
-            user_id=str(current_user.id) if current_user else user_id_from_token,
+            user_id=target_user_id,
             success=True,
             error_code=None,
-            error_description=f"OIDC logout completed: {logout_stats}",
+            error_description=f"Enhanced OIDC logout: {logout_stats}",
             request=request,
             db=db
         )
-        
     except Exception as e:
-        logger.warning(f"Failed to log logout event: {str(e)}")
+        logger.error(f"Failed to log logout action: {e}")
     
-    # 7. 안전한 리다이렉트 URL 준비
-    redirect_url = post_logout_redirect_uri or f"{settings.max_platform_frontend_url}/login?logout=success"
-    
-    # 기본 보안 검증 (domain whitelist 방식)
+    # Prepare redirect URL
     if post_logout_redirect_uri:
         try:
             from urllib.parse import urlparse
             parsed_uri = urlparse(post_logout_redirect_uri)
-            
-            # 허용된 도메인 목록 (설정에서 가져오기)
             allowed_domains = [
-                "localhost",
-                "127.0.0.1", 
-                "maxplatform.local",
+                "maxlab.dwchem.co.kr",
+                "devmaxlab.dwchem.co.kr", 
+                "max.dwchem.co.kr",
+                "devmax.dwchem.co.kr",
                 urlparse(settings.max_platform_frontend_url).hostname
             ]
             
@@ -2685,45 +2731,62 @@ async def oauth_logout(
                 logger.warning(f"🔒 Logout redirect to untrusted domain: {parsed_uri.hostname}")
                 redirect_url = f"{settings.max_platform_frontend_url}/login?logout=success&error=untrusted_domain"
             else:
-                # 신뢰된 도메인이면 그대로 사용
                 redirect_url = post_logout_redirect_uri
                 logger.info(f"🔐 Logout redirect to trusted domain: {parsed_uri.hostname}")
-                
         except Exception as e:
-            logger.error(f"Failed to parse logout redirect URI: {str(e)}")
+            logger.error(f"Failed to parse logout redirect URI: {e}")
             redirect_url = f"{settings.max_platform_frontend_url}/login?logout=success&error=parse_error"
+    else:
+        redirect_url = f"{settings.max_platform_frontend_url}/login?logout=success"
     
-    # state 파라미터 추가
+    # Add state parameter if provided
     if state:
         separator = "&" if "?" in redirect_url else "?"
         redirect_url = f"{redirect_url}{separator}state={state}"
     
-    logger.info(f"🔐 OIDC Logout completed: {logout_stats}")
+    logger.info(f"🔐 Enhanced OIDC Logout completed: {logout_stats}")
     logger.info(f"🔐 Redirecting to: {redirect_url}")
     
-    # 8. 최종 응답 - 쿠키 정리 및 리다이렉트
+    # Enhanced Response with Comprehensive Cookie Cleanup
     response = RedirectResponse(url=redirect_url, status_code=302)
     
-    # 클라이언트 저장소 정리를 위한 헤더 추가
-    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
-    response.headers["X-Logout-Complete"] = "true"
-    response.headers["X-Clear-Storage"] = "localStorage,sessionStorage,indexedDB"
+    # Clear all possible cookie variations
+    cookie_names = ["access_token", "token", "auth_token", "jwt_token", "refresh_token"]
+    cookie_domains = [".dwchem.co.kr", "max.dwchem.co.kr", "maxlab.dwchem.co.kr"]
+    cookie_paths = ["/", "/api/", "/oauth/"]
     
-    # 모든 인증 관련 쿠키 삭제
-    cookies_to_clear = [
-        "access_token", "refresh_token", "csrf_token", 
-        "session_token", "session_id", "auth_token",
-        "__Secure-access_token", "__Secure-refresh_token"
-    ]
-    
-    for cookie_name in cookies_to_clear:
+    for cookie_name in cookie_names:
+        # Clear for current domain/path
         response.delete_cookie(
-            cookie_name, 
+            key=cookie_name,
             path="/",
-            domain=None,  # 현재 도메인
-            secure=False,  # HTTPS 환경에서는 True로 설정
+            secure=True,
             httponly=True,
             samesite="lax"
         )
+        
+        # Clear for all possible domain/path combinations
+        for domain in cookie_domains:
+            for path in cookie_paths:
+                try:
+                    response.delete_cookie(
+                        key=cookie_name,
+                        domain=domain,
+                        path=path,
+                        secure=True,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    logout_stats["cookies_cleared"] += 1
+                except Exception as e:
+                    logger.debug(f"Could not clear cookie {cookie_name} for {domain}{path}: {e}")
+    
+    # Add headers to coordinate client-side cleanup
+    response.headers["X-Logout-Status"] = "completed"
+    response.headers["X-Logout-Stats"] = str(logout_stats)
+    response.headers["X-Clear-Storage"] = "true"  # Signal frontend to clear localStorage/sessionStorage
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     
     return response

@@ -57,23 +57,28 @@ main_logger = logging.getLogger("app.main")
 # Import background tasks
 from .tasks.key_rotation import init_key_rotation_task
 from .tasks.nonce_cleanup import init_nonce_cleanup_task
+# Import session management
+from .core.session_init import startup_session_management
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events"""
     # Startup
-    main_logger.info("Initializing background tasks...")
+    main_logger.info("Initializing application services...")
+    
+    # Initialize Redis session management for OAuth SSO consistency
+    await startup_session_management()
     
     # Initialize OIDC background tasks
     init_key_rotation_task()
     init_nonce_cleanup_task()
     
-    main_logger.info("Background tasks initialized")
+    main_logger.info("Application services initialized")
     
     yield
     
     # Shutdown
-    main_logger.info("Shutting down background tasks...")
+    main_logger.info("Shutting down application services...")
 
 # FastAPI 앱 생성
 app = FastAPI(
