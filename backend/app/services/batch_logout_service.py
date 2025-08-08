@@ -313,7 +313,7 @@ class BatchLogoutService:
             text("""
                 UPDATE oauth_access_tokens 
                 SET revoked_at = NOW() 
-                WHERE user_id = ANY(:user_ids) 
+                WHERE user_id = ANY(:user_ids::uuid[]) 
                 AND revoked_at IS NULL
             """),
             {"user_ids": user_ids}
@@ -325,7 +325,7 @@ class BatchLogoutService:
             text("""
                 UPDATE oauth_refresh_tokens 
                 SET revoked_at = NOW() 
-                WHERE user_id = ANY(:user_ids) 
+                WHERE user_id = ANY(:user_ids::uuid[]) 
                 AND revoked_at IS NULL
             """),
             {"user_ids": user_ids}
@@ -336,7 +336,7 @@ class BatchLogoutService:
         result = db.execute(
             text("""
                 DELETE FROM oauth_sessions 
-                WHERE user_id = ANY(:user_ids)
+                WHERE user_id = ANY(:user_ids::uuid[])
             """),
             {"user_ids": user_ids}
         )
@@ -467,17 +467,17 @@ class BatchLogoutService:
         
         # 토큰 수 계산
         access_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_access_tokens WHERE user_id = ANY(:user_ids) AND revoked_at IS NULL"),
+            text("SELECT COUNT(*) FROM oauth_access_tokens WHERE user_id = ANY(:user_ids::uuid[]) AND revoked_at IS NULL"),
             {"user_ids": user_ids}
         ).scalar()
         
         refresh_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_refresh_tokens WHERE user_id = ANY(:user_ids) AND revoked_at IS NULL"),
+            text("SELECT COUNT(*) FROM oauth_refresh_tokens WHERE user_id = ANY(:user_ids::uuid[]) AND revoked_at IS NULL"),
             {"user_ids": user_ids}
         ).scalar()
         
         session_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_sessions WHERE user_id = ANY(:user_ids)"),
+            text("SELECT COUNT(*) FROM oauth_sessions WHERE user_id = ANY(:user_ids::uuid[])"),
             {"user_ids": user_ids}
         ).scalar()
         
@@ -691,13 +691,13 @@ class BatchLogoutService:
         
         # Access tokens 해지
         access_result = db.execute(
-            text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids)"),
+            text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
             {"token_ids": token_ids}
         )
         
         # Refresh tokens 해지  
         refresh_result = db.execute(
-            text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids)"),
+            text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
             {"token_ids": token_ids}
         )
         
@@ -716,14 +716,14 @@ class BatchLogoutService:
         
         if access_tokens:
             result = db.execute(
-                text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids)"),
+                text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
                 {"token_ids": access_tokens}
             )
             stats["access_tokens_revoked"] = result.rowcount
         
         if refresh_tokens:
             result = db.execute(
-                text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids)"),
+                text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
                 {"token_ids": refresh_tokens}
             )
             stats["refresh_tokens_revoked"] = result.rowcount
