@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User, AuthContextType } from '../types'
 import { authAPI } from '../services/api'
 import { startTokenRefreshTimer } from '../utils/tokenManager'
+import { crossDomainLogout } from '../utils/crossDomainLogout'
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -57,39 +58,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }
   
-  // SSO: MAX Lab에 로그아웃 알림
-  const syncLogoutToMaxLab = () => {
-    try {
-      console.log('🔄 SSO: Syncing logout to MAX Lab...')
-      
-      // MAX Lab URL 설정
-      const maxLabUrl = process.env.NODE_ENV === 'production' 
-        ? 'https://maxlab.dwchem.co.kr'
-        : 'http://localhost:3010'
-      
-      // iframe을 통해 MAX Lab에 로그아웃 알림
-      const iframe = document.createElement('iframe')
-      iframe.style.display = 'none'
-      iframe.src = `${maxLabUrl}/oauth/logout-sync`
-      
-      // iframe 로드 후 자동 제거
-      iframe.onload = () => {
-        console.log('✅ SSO: MAX Lab logout sync iframe loaded')
-        setTimeout(() => {
-          document.body.removeChild(iframe)
-        }, 2000)
-      }
-      
-      iframe.onerror = () => {
-        console.warn('⚠️ SSO: Failed to load MAX Lab logout sync iframe')
-        document.body.removeChild(iframe)
-      }
-      
-      document.body.appendChild(iframe)
-    } catch (error) {
-      console.error('❌ SSO: Failed to sync logout with MAX Lab:', error)
-    }
-  }
 
   useEffect(() => {
     const initAuth = async () => {
@@ -201,42 +169,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async (forceSingleLogout: boolean = true) => {
     try {
-      // 1. 로컬 토큰 정리
-      const currentToken = localStorage.getItem('token')
-      localStorage.removeItem('token')
-      localStorage.removeItem('refreshToken')
-      document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr'
+      console.log('🔄 Starting enhanced logout process...');
       
-      // 2. 상태 업데이트
+      // 1. Get current token before clearing
+      const currentToken = localStorage.getItem('token')
+      const idToken = localStorage.getItem('id_token')
+      
+      // 2. Update state first
       setToken(null)
       setUser(null)
       setIsAuthenticated(false)
       
-      // 3. SSO: MAX Lab에 로그아웃 알림
-      syncLogoutToMaxLab()
+      // 3. Execute cross-domain logout with proper synchronization
+      console.log('🔄 Executing cross-domain logout synchronization...');
+      const logoutResult = await crossDomainLogout.executeLogout({
+        timeout: 30000, // 30 seconds timeout
+        retryCount: 2   // Retry twice if needed
+      });
       
-      // 4. Single Logout 수행 (OIDC End Session)
+      if (logoutResult.maxLabSynced) {
+        console.log('✅ MAX Lab logout synchronized successfully');
+      } else {
+        console.warn('⚠️ MAX Lab logout sync failed, but continuing...');
+      }
+      
+      // 4. Add a small delay to ensure cross-domain sync completes
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 5. Perform OIDC End Session if requested
       if (forceSingleLogout && currentToken) {
-        // OIDC End Session Endpoint로 리다이렉트
+        console.log('🔄 Performing OIDC end session...');
+        
+        // Build logout URL
         const logoutUrl = new URL(`${window.location.origin}/api/oauth/logout`)
         logoutUrl.searchParams.append('post_logout_redirect_uri', `${window.location.origin}/login?logout=success`)
         
-        // id_token_hint 추가 (있는 경우)
-        const idToken = localStorage.getItem('id_token')
+        // Add id_token_hint if available
         if (idToken) {
           logoutUrl.searchParams.append('id_token_hint', idToken)
-          localStorage.removeItem('id_token')
         }
         
-        // SSO Provider 로그아웃 수행
+        // Redirect to logout endpoint
         window.location.href = logoutUrl.toString()
       } else {
-        // 로컬 로그아웃만 수행 (fallback)
+        // Local logout only
+        console.log('🔄 Local logout only, redirecting to login...');
         window.location.href = '/login?logout=local'
       }
     } catch (error) {
-      console.error('Logout error:', error)
-      // 오류 시에도 로그인 페이지로 이동
+      console.error('❌ Logout error:', error)
+      // Even on error, ensure we redirect to login page
       window.location.href = '/login?logout=error'
     }
   }

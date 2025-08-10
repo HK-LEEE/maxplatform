@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cross-Domain Logout Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .log { background: #f5f5f5; padding: 15px; height: 300px; overflow-y: scroll; }
+        button { padding: 10px 20px; margin: 10px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>Cross-Domain Logout Test</h1>
+    <p>This page tests the cross-domain logout functionality between MAX Platform and MAX Lab.</p>
+    
+    <button onclick="testCrossDomainLogout()">Test Cross-Domain Logout</button>
+    <button onclick="clearLog()">Clear Log</button>
+    
+    <h3>Test Log:</h3>
+    <div id="log" class="log"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            logDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Cross-Domain Logout Manager for testing
+        class TestCrossDomainLogoutManager {
+            constructor() {
+                this.defaultOptions = {
+                    maxLabUrl: 'https://maxlab.dwchem.co.kr',
+                    timeout: 10000, // Shorter timeout for testing
+                    retryCount: 1
+                };
+            }
+
+            async executeLogout(options = {}) {
+                const config = { ...this.defaultOptions, ...options };
+                
+                log('🔄 Starting cross-domain logout process...', 'info');
+                
+                try {
+                    // Step 1: Clear local storage
+                    this.clearLocalStorage();
+                    
+                    // Step 2: Sync with MAX Lab
+                    const maxLabSynced = await this.syncLogoutToMaxLab(config);
+                    
+                    // Step 3: Broadcast logout
+                    this.broadcastLogout();
+                    
+                    log('✅ Cross-domain logout completed', 'success');
+                    log(`MAX Lab synchronized: ${maxLabSynced}`, maxLabSynced ? 'success' : 'error');
+                    
+                    return {
+                        success: true,
+                        maxLabSynced
+                    };
+                    
+                } catch (error) {
+                    log(`❌ Cross-domain logout failed: ${error.message}`, 'error');
+                    
+                    return {
+                        success: false,
+                        maxLabSynced: false,
+                        error: error.message
+                    };
+                }
+            }
+
+            async syncLogoutToMaxLab(config) {
+                return new Promise((resolve) => {
+                    let resolved = false;
+                    
+                    log(`🔄 Attempting MAX Lab logout sync to ${config.maxLabUrl}`, 'info');
+                    
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = `${config.maxLabUrl}/oauth/logout-sync`;
+                    
+                    // Set up timeout
+                    const timeoutId = setTimeout(() => {
+                        if (!resolved) {
+                            log('⚠️ MAX Lab logout sync timeout', 'error');
+                            iframe.remove();
+                            resolved = true;
+                            resolve(false);
+                        }
+                    }, config.timeout);
+                    
+                    // Listen for postMessage from iframe
+                    const messageListener = (event) => {
+                        log(`📨 Received message from ${event.origin}: ${JSON.stringify(event.data)}`, 'info');
+                        
+                        if (event.origin !== config.maxLabUrl) return;
+                        
+                        if (event.data?.type === 'SSO_LOGOUT_SYNC' && 
+                            event.data?.source === 'max_platform' && 
+                            event.data?.success === true) {
+                            log('✅ MAX Lab logout sync confirmed', 'success');
+                            clearTimeout(timeoutId);
+                            window.removeEventListener('message', messageListener);
+                            iframe.remove();
+                            
+                            if (!resolved) {
+                                resolved = true;
+                                resolve(true);
+                            }
+                        }
+                    };
+                    
+                    window.addEventListener('message', messageListener);
+                    
+                    iframe.onload = () => {
+                        log('📡 MAX Lab logout sync iframe loaded', 'info');
+                    };
+                    
+                    iframe.onerror = () => {
+                        log('❌ MAX Lab logout sync iframe failed to load', 'error');
+                        clearTimeout(timeoutId);
+                        window.removeEventListener('message', messageListener);
+                        iframe.remove();
+                        
+                        if (!resolved) {
+                            resolved = true;
+                            resolve(false);
+                        }
+                    };
+                    
+                    document.body.appendChild(iframe);
+                });
+            }
+
+            clearLocalStorage() {
+                try {
+                    const items = ['token', 'refreshToken', 'id_token', 'user'];
+                    items.forEach(item => localStorage.removeItem(item));
+                    log('✅ Local storage cleared', 'success');
+                } catch (error) {
+                    log(`❌ Failed to clear local storage: ${error.message}`, 'error');
+                }
+            }
+
+            broadcastLogout() {
+                try {
+                    if ('BroadcastChannel' in window) {
+                        const channel = new BroadcastChannel('max_platform_auth');
+                        channel.postMessage({ 
+                            type: 'logout', 
+                            timestamp: Date.now(),
+                            source: 'cross_domain_logout'
+                        });
+                        channel.close();
+                    }
+                    
+                    localStorage.setItem('logout_event', JSON.stringify({
+                        type: 'logout',
+                        timestamp: Date.now(),
+                        source: 'cross_domain_logout'
+                    }));
+                    
+                    setTimeout(() => {
+                        localStorage.removeItem('logout_event');
+                    }, 1000);
+                    
+                    log('📡 Logout event broadcasted', 'success');
+                } catch (error) {
+                    log(`❌ Failed to broadcast logout: ${error.message}`, 'error');
+                }
+            }
+        }
+
+        const testLogoutManager = new TestCrossDomainLogoutManager();
+
+        async function testCrossDomainLogout() {
+            log('🧪 Starting cross-domain logout test...', 'info');
+            
+            const result = await testLogoutManager.executeLogout({
+                timeout: 15000,
+                retryCount: 1
+            });
+            
+            log(`📊 Test completed: ${JSON.stringify(result)}`, result.success ? 'success' : 'error');
+        }
+
+        // Listen for messages for debugging
+        window.addEventListener('message', (event) => {
+            log(`🎧 Global message listener: ${event.origin} - ${JSON.stringify(event.data)}`, 'info');
+        });
+
+        log('🚀 Cross-domain logout test page loaded', 'success');
+    </script>
+</body>
+</html>
