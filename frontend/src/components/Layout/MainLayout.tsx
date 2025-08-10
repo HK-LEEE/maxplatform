@@ -51,30 +51,50 @@ const MainLayout: React.FC = () => {
   // 간소화된 로그아웃 처리 (모달에서 호출)
   const handleLogout = async (logoutType: 'smart' | 'current' | 'all') => {
     try {
+      console.log(`🔄 Starting ${logoutType} logout process...`);
+      
+      // Show loading message
+      toast.loading('로그아웃 중... MAX Lab과 동기화하고 있습니다.', { 
+        id: 'logout-process',
+        duration: Infinity 
+      });
+      
       // 백엔드 세션 로그아웃 API 호출 (선택적)
       if (logoutType === 'all' || logoutType === 'smart') {
         try {
+          console.log('🔄 Calling backend logout API...');
           await executeLogout(logoutType);
+          console.log('✅ Backend logout API completed');
         } catch (error) {
-          console.log('백엔드 로그아웃 API 오류:', error);
+          console.warn('⚠️ 백엔드 로그아웃 API 오류:', error);
           // 오류가 있어도 계속 진행
         }
       }
       
       // SSO 로그아웃 수행 (AuthContext의 logout 함수 사용)
+      console.log('🔄 Performing SSO logout...');
       await logout(true);
       
-      // 성공 메시지
-      const message = logoutType === 'current' 
-        ? '현재 브라우저에서 로그아웃되었습니다'
-        : '모든 디바이스에서 안전하게 로그아웃되었습니다';
-      toast.success(message);
+      // Success message will be shown after redirect, so we dismiss the loading toast
+      toast.dismiss('logout-process');
       
     } catch (error) {
-      console.error('Logout error:', error);
-      // 오류 시에도 로그아웃 진행
-      await logout(true);
-      toast.error('로그아웃 중 오류가 발생했지만 정상적으로 로그아웃되었습니다.');
+      console.error('❌ Logout error:', error);
+      toast.dismiss('logout-process');
+      
+      // Show error but still proceed with logout
+      toast.error('로그아웃 중 오류가 발생했지만 계속 진행합니다...', { 
+        duration: 2000 
+      });
+      
+      try {
+        // Force logout even on error
+        await logout(true);
+      } catch (secondError) {
+        console.error('❌ Fallback logout also failed:', secondError);
+        // Force redirect as last resort
+        window.location.href = '/login?logout=error';
+      }
     }
   };
 

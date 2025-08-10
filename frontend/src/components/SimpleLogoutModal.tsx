@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogOut, ChevronDown, ChevronUp, Shield, Smartphone, X } from 'lucide-react';
+import { LogOut, Shield, X } from 'lucide-react';
 
 interface SimpleLogoutModalProps {
   isOpen: boolean;
@@ -15,13 +15,12 @@ const SimpleLogoutModal: React.FC<SimpleLogoutModalProps> = ({
   userName
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [logoutType, setLogoutType] = useState<'smart' | 'current' | 'all'>('smart');
 
   const handleLogout = async () => {
     setIsLoading(true);
     try {
-      await onLogout(logoutType);
+      // Always use 'smart' logout (same as 'all' but with better UX naming)
+      await onLogout('smart');
       onClose();
     } catch (error) {
       console.error('Logout error:', error);
@@ -62,116 +61,38 @@ const SimpleLogoutModal: React.FC<SimpleLogoutModalProps> = ({
 
           {/* 모달 바디 */}
           <div className="p-6">
-            {!showAdvanced ? (
-              /* 기본 로그아웃 화면 */
-              <div className="space-y-4">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Shield className="w-8 h-8 text-blue-600" />
-                  </div>
-                  {userName && (
-                    <p className="text-lg font-medium text-gray-900 mb-2">
-                      안녕히가세요, {userName}님
-                    </p>
-                  )}
-                  <p className="text-gray-600 leading-relaxed">
-                    모든 디바이스에서 안전하게 로그아웃하고<br/>
-                    MAX Lab과 연동된 서비스에서도 함께<br/>
-                    로그아웃됩니다.
+            <div className="space-y-4">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Shield className="w-8 h-8 text-blue-600" />
+                </div>
+                {userName && (
+                  <p className="text-lg font-medium text-gray-900 mb-2">
+                    안녕히가세요, {userName}님
                   </p>
-                </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-                  <div className="flex items-center space-x-2">
-                    <Shield className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900">보안 권장</span>
-                  </div>
-                  <p className="text-sm text-blue-800 mt-1">
-                    공용 컴퓨터나 다른 사람과 공유하는 디바이스에서는 항상 모든 세션에서 로그아웃하는 것이 안전합니다.
-                  </p>
-                </div>
-              </div>
-            ) : (
-              /* 고급 옵션 화면 */
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-3">로그아웃 방식 선택:</h3>
-                  <div className="space-y-3">
-                    <label className="flex items-start space-x-3 cursor-pointer p-3 border rounded-lg hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="logoutType"
-                        value="all"
-                        checked={logoutType === 'all'}
-                        onChange={(e) => setLogoutType(e.target.value as 'smart' | 'current' | 'all')}
-                        className="mt-1 w-4 h-4 text-blue-600"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2">
-                          <div className="font-medium text-gray-900">모든 디바이스에서 로그아웃</div>
-                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">권장</span>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          모든 브라우저, 모바일 앱, 다른 컴퓨터에서 로그아웃됩니다.
-                        </p>
-                      </div>
-                    </label>
-                    
-                    <label className="flex items-start space-x-3 cursor-pointer p-3 border rounded-lg hover:bg-gray-50">
-                      <input
-                        type="radio"
-                        name="logoutType"
-                        value="current"
-                        checked={logoutType === 'current'}
-                        onChange={(e) => setLogoutType(e.target.value as 'smart' | 'current' | 'all')}
-                        className="mt-1 w-4 h-4 text-blue-600"
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">현재 브라우저에서만 로그아웃</div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          이 브라우저에서만 로그아웃하고 다른 디바이스는 로그인 상태를 유지합니다.
-                        </p>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-
-                {logoutType === 'current' && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
-                    <div className="flex items-center space-x-2">
-                      <Smartphone className="w-4 h-4 text-yellow-600" />
-                      <span className="text-sm font-medium text-yellow-900">주의</span>
-                    </div>
-                    <p className="text-sm text-yellow-800 mt-1">
-                      다른 디바이스에서는 계속 로그인 상태가 유지됩니다. 보안이 걱정된다면 모든 세션에서 로그아웃하세요.
-                    </p>
-                  </div>
                 )}
+                <p className="text-gray-600 leading-relaxed">
+                  모든 디바이스에서 안전하게 로그아웃하고<br/>
+                  MAX Lab과 연동된 서비스에서도 함께<br/>
+                  로그아웃됩니다.
+                </p>
               </div>
-            )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <div className="flex items-center space-x-2">
+                  <Shield className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900">보안 권장</span>
+                </div>
+                <p className="text-sm text-blue-800 mt-1">
+                  공용 컴퓨터나 다른 사람과 공유하는 디바이스에서는 항상 모든 세션에서 로그아웃하는 것이 안전합니다.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* 모달 푸터 */}
-          <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
-            {!showAdvanced && (
-              <button
-                onClick={() => setShowAdvanced(true)}
-                className="flex items-center space-x-1 text-sm text-gray-600 hover:text-gray-800"
-              >
-                <span>고급 옵션</span>
-                <ChevronDown className="w-4 h-4" />
-              </button>
-            )}
-            
-            {showAdvanced && (
-              <button
-                onClick={() => setShowAdvanced(false)}
-                className="flex items-center space-x-1 text-sm text-gray-600 hover:text-gray-800"
-              >
-                <span>기본으로 돌아가기</span>
-                <ChevronUp className="w-4 h-4" />
-              </button>
-            )}
+          <div className="flex items-center justify-end p-6 border-t border-gray-200 bg-gray-50">
+            {/* Advanced options disabled - always use smart logout */}
 
             <div className="flex items-center space-x-3">
               <button
@@ -194,12 +115,7 @@ const SimpleLogoutModal: React.FC<SimpleLogoutModalProps> = ({
                 ) : (
                   <>
                     <LogOut className="w-4 h-4" />
-                    <span>
-                      {showAdvanced 
-                        ? (logoutType === 'all' ? '모든 세션 로그아웃' : '현재 세션 로그아웃')
-                        : '로그아웃하기'
-                      }
-                    </span>
+                    <span>로그아웃하기</span>
                   </>
                 )}
               </button>
