@@ -718,23 +718,37 @@ async def logout(
         logger.error(f"❌ Failed to delete Redis sessions for user {current_user.email}: {e}")
         # 세션 삭제 실패해도 로그아웃은 계속 진행
     
-    # 5. 세션 쿠키 정리
+    # 5. 세션 쿠키 정리 - 크로스 도메인 SSO를 위한 완전한 쿠키 삭제
     try:
-        # OAuth 세션 쿠키들 삭제
-        response.delete_cookie("session_id", domain=None, path="/")
-        response.delete_cookie("session_token", domain=None, path="/")  
-        response.delete_cookie("user_id", domain=None, path="/")
-        response.delete_cookie("oauth_session", domain=None, path="/")
+        # 모든 관련 쿠키 목록
+        cookie_names = [
+            "session_id", "session_token", "user_id", "oauth_session",
+            "access_token", "refresh_token"
+        ]
         
-        # 도메인별 쿠키 삭제 (크로스 도메인 지원)
-        for domain in [".localhost", "localhost", ".dwchem.co.kr"]:
+        # Primary domain deletion for production
+        cookie_domain = ".dwchem.co.kr"
+        for cookie_name in cookie_names:
             try:
-                response.delete_cookie("session_id", domain=domain, path="/")
-                response.delete_cookie("session_token", domain=domain, path="/")
-                response.delete_cookie("user_id", domain=domain, path="/")
-                response.delete_cookie("oauth_session", domain=domain, path="/")
-            except:
-                pass  # 도메인별 쿠키 삭제 실패는 무시
+                response.delete_cookie(key=cookie_name, domain=cookie_domain, path="/")
+            except Exception as e:
+                logger.debug(f"Failed to delete {cookie_name} with domain {cookie_domain}: {e}")
+        
+        # Also delete without domain for current domain
+        for cookie_name in cookie_names:
+            try:
+                response.delete_cookie(key=cookie_name, path="/")
+            except Exception as e:
+                logger.debug(f"Failed to delete {cookie_name} without domain: {e}")
+        
+        # For local development - delete with localhost variations
+        if settings.debug:
+            for domain in [".localhost", "localhost"]:
+                for cookie_name in cookie_names:
+                    try:
+                        response.delete_cookie(key=cookie_name, domain=domain, path="/")
+                    except:
+                        pass
         
         logger.info(f"✅ Session cookies cleared for user {current_user.email}")
     except Exception as e:
