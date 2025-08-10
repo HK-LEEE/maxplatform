@@ -177,6 +177,10 @@ app.include_router(groups.router)
 app.include_router(batch_logout.router, tags=["Batch Logout"])
 app.include_router(batch_logout.user_session_router, tags=["User Sessions"])
 
+# Session validation for SSO
+from app.routers import session_validation
+app.include_router(session_validation.router, tags=["Session Validation"])
+
 # 정적 파일 서빙 (업로드된 파일용)
 if not os.path.exists("data"):
     os.makedirs("data")
