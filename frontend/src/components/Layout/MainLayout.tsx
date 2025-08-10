@@ -9,8 +9,8 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import SessionLogoutModal from '../SessionLogoutModal';
-import useSessionLogout from '../../hooks/useSessionLogout';
+import SimpleLogoutModal from '../SimpleLogoutModal';
+import { useSimpleLogout } from '../../hooks/useSimpleLogout';
 import toast from 'react-hot-toast';
 
 const MainLayout: React.FC = () => {
@@ -21,12 +21,8 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const dropdownRef = useRef<HTMLDivElement>(null);
   
-  // 로그아웃 모달 관련
-  const {
-    sessionsData,
-    fetchActiveSessions,
-    executeLogout
-  } = useSessionLogout();
+  // 간소화된 로그아웃 모달 관련
+  const { executeLogout } = useSimpleLogout();
 
   // 사용자가 로그인되지 않은 경우 로그인 페이지로 리다이렉트
   useEffect(() => {
@@ -49,34 +45,36 @@ const MainLayout: React.FC = () => {
   // 로그아웃 모달 열기
   const handleLogoutClick = () => {
     setDropdownOpen(false); // 드롭다운 먼저 닫기
-    setIsModalOpen(true); // 바로 모달 열기 (백엔드 API 없이)
+    setIsModalOpen(true); // 바로 모달 열기
   };
 
-  // 실제 로그아웃 처리 (모달에서 호출)
-  const handleLogout = async (logoutType: 'current' | 'all', reason?: string) => {
+  // 간소화된 로그아웃 처리 (모달에서 호출)
+  const handleLogout = async (logoutType: 'smart' | 'current' | 'all') => {
     try {
-      if (logoutType === 'all') {
-        // 모든 세션 로그아웃 - 백엔드 API 호출 시도
+      // 백엔드 세션 로그아웃 API 호출 (선택적)
+      if (logoutType === 'all' || logoutType === 'smart') {
         try {
-          await executeLogout(logoutType, reason);
+          await executeLogout(logoutType);
         } catch (error) {
           console.log('백엔드 로그아웃 API 오류:', error);
           // 오류가 있어도 계속 진행
         }
       }
       
-      // Single Logout 수행
+      // SSO 로그아웃 수행 (AuthContext의 logout 함수 사용)
       await logout(true);
       
-      toast.success(
-        logoutType === 'current' 
-          ? '현재 세션에서 로그아웃되었습니다'
-          : '모든 세션에서 로그아웃되었습니다'
-      );
+      // 성공 메시지
+      const message = logoutType === 'current' 
+        ? '현재 브라우저에서 로그아웃되었습니다'
+        : '모든 디바이스에서 안전하게 로그아웃되었습니다';
+      toast.success(message);
+      
     } catch (error) {
       console.error('Logout error:', error);
       // 오류 시에도 로그아웃 진행
       await logout(true);
+      toast.error('로그아웃 중 오류가 발생했지만 정상적으로 로그아웃되었습니다.');
     }
   };
 
@@ -187,21 +185,12 @@ const MainLayout: React.FC = () => {
         <Outlet />
       </main>
 
-      {/* 로그아웃 모달 */}
-      <SessionLogoutModal
+      {/* 간소화된 로그아웃 모달 */}
+      <SimpleLogoutModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        currentSession={sessionsData?.current_session || {
-          session_id: 'current-session',
-          client_name: 'MAX Platform Web',
-          created_at: new Date().toISOString(),
-          is_current_session: true,
-          is_suspicious: false
-        }}
-        otherSessions={sessionsData?.other_sessions || []}
-        totalSessions={sessionsData?.total_sessions || 1}
-        suspiciousSessions={sessionsData?.suspicious_sessions || 0}
         onLogout={handleLogout}
+        userName={user?.display_name || user?.real_name || user?.username}
       />
     </div>
   );
