@@ -309,14 +309,15 @@ class BatchLogoutService:
             return stats
         
         # Access tokens 해지
+        # Fix: Use IN clause instead of ANY with array for SQLAlchemy compatibility
         result = db.execute(
             text("""
                 UPDATE oauth_access_tokens 
                 SET revoked_at = NOW() 
-                WHERE user_id = ANY(:user_ids::uuid[]) 
+                WHERE user_id IN :user_ids
                 AND revoked_at IS NULL
             """),
-            {"user_ids": user_ids}
+            {"user_ids": tuple(user_ids)}  # Convert to tuple for IN clause
         )
         stats['access_tokens'] = result.rowcount
         
@@ -325,10 +326,10 @@ class BatchLogoutService:
             text("""
                 UPDATE oauth_refresh_tokens 
                 SET revoked_at = NOW() 
-                WHERE user_id = ANY(:user_ids::uuid[]) 
+                WHERE user_id IN :user_ids
                 AND revoked_at IS NULL
             """),
-            {"user_ids": user_ids}
+            {"user_ids": tuple(user_ids)}  # Convert to tuple for IN clause
         )
         stats['refresh_tokens'] = result.rowcount
         
@@ -336,9 +337,9 @@ class BatchLogoutService:
         result = db.execute(
             text("""
                 DELETE FROM oauth_sessions 
-                WHERE user_id = ANY(:user_ids::uuid[])
+                WHERE user_id IN :user_ids
             """),
-            {"user_ids": user_ids}
+            {"user_ids": tuple(user_ids)}  # Convert to tuple for IN clause
         )
         stats['sessions'] = result.rowcount
         
@@ -467,18 +468,18 @@ class BatchLogoutService:
         
         # 토큰 수 계산
         access_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_access_tokens WHERE user_id = ANY(:user_ids::uuid[]) AND revoked_at IS NULL"),
-            {"user_ids": user_ids}
+            text("SELECT COUNT(*) FROM oauth_access_tokens WHERE user_id IN :user_ids AND revoked_at IS NULL"),
+            {"user_ids": tuple(user_ids)}
         ).scalar()
         
         refresh_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_refresh_tokens WHERE user_id = ANY(:user_ids::uuid[]) AND revoked_at IS NULL"),
-            {"user_ids": user_ids}
+            text("SELECT COUNT(*) FROM oauth_refresh_tokens WHERE user_id IN :user_ids AND revoked_at IS NULL"),
+            {"user_ids": tuple(user_ids)}
         ).scalar()
         
         session_count = db.execute(
-            text("SELECT COUNT(*) FROM oauth_sessions WHERE user_id = ANY(:user_ids::uuid[])"),
-            {"user_ids": user_ids}
+            text("SELECT COUNT(*) FROM oauth_sessions WHERE user_id IN :user_ids"),
+            {"user_ids": tuple(user_ids)}
         ).scalar()
         
         return {
@@ -691,14 +692,14 @@ class BatchLogoutService:
         
         # Access tokens 해지
         access_result = db.execute(
-            text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
-            {"token_ids": token_ids}
+            text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id IN :token_ids"),
+            {"token_ids": tuple(token_ids)}
         )
         
         # Refresh tokens 해지  
         refresh_result = db.execute(
-            text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
-            {"token_ids": token_ids}
+            text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id IN :token_ids"),
+            {"token_ids": tuple(token_ids)}
         )
         
         db.commit()
@@ -716,15 +717,15 @@ class BatchLogoutService:
         
         if access_tokens:
             result = db.execute(
-                text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
-                {"token_ids": access_tokens}
+                text("UPDATE oauth_access_tokens SET revoked_at = NOW() WHERE id IN :token_ids"),
+                {"token_ids": tuple(access_tokens)}
             )
             stats["access_tokens_revoked"] = result.rowcount
         
         if refresh_tokens:
             result = db.execute(
-                text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id = ANY(:token_ids::uuid[])"),
-                {"token_ids": refresh_tokens}
+                text("UPDATE oauth_refresh_tokens SET revoked_at = NOW() WHERE id IN :token_ids"),
+                {"token_ids": tuple(refresh_tokens)}
             )
             stats["refresh_tokens_revoked"] = result.rowcount
         
