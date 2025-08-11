@@ -22,8 +22,8 @@ export class CrossDomainLogoutManager {
     maxLabUrl: process.env.NODE_ENV === 'production' 
       ? 'https://maxlab.dwchem.co.kr'
       : 'http://localhost:3010',
-    timeout: 30000, // 30 seconds
-    retryCount: 2
+    timeout: 3000,     // 🔥 30000 → 3000 (3초)
+    retryCount: 1      // 🔥 2 → 1 (재시도 1회만)
   };
 
   /**
@@ -94,7 +94,7 @@ export class CrossDomainLogoutManager {
             iframe.remove();
             // Try again if we have retries left
             if (retryCount < config.retryCount) {
-              setTimeout(attemptSync, 1000); // Wait 1 second before retry
+              setTimeout(attemptSync, 100); // 🔥 1000 → 100ms
             } else {
               resolved = true;
               resolve(false);
@@ -142,7 +142,7 @@ export class CrossDomainLogoutManager {
           
           // Try again if we have retries left
           if (retryCount < config.retryCount) {
-            setTimeout(attemptSync, 1000);
+            setTimeout(attemptSync, 100); // 🔥 1000 → 100ms
           } else if (!resolved) {
             resolved = true;
             resolve(false);
@@ -165,6 +165,18 @@ export class CrossDomainLogoutManager {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('id_token');
       localStorage.removeItem('user');
+      
+      // 🔥 즉시 로그아웃 트리거 추가
+      localStorage.setItem('logout_trigger', JSON.stringify({
+        timestamp: Date.now(),
+        source: 'maxplatform'
+      }));
+      
+      // 1초 후 정리
+      setTimeout(() => {
+        localStorage.removeItem('logout_trigger');
+      }, 1000);
+      
       console.log('✅ Local storage cleared');
     } catch (error) {
       console.error('❌ Failed to clear local storage:', error);
