@@ -196,19 +196,27 @@ export class CrossDomainLogoutManager {
         'refresh_token'
       ];
       
+      const isProduction = window.location.hostname.includes('dwchem.co.kr');
+      
       cookiesToClear.forEach(cookieName => {
-        // Clear for current domain
+        // Clear for current domain (works on localhost and production)
         document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;`;
         
-        // Clear for .dwchem.co.kr domain
-        document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr;`;
-        
-        // Clear for specific subdomains
-        document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=max.dwchem.co.kr;`;
-        document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=maxlab.dwchem.co.kr;`;
+        // Only set domain cookies in production
+        if (isProduction) {
+          // Clear for .dwchem.co.kr domain
+          document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=.dwchem.co.kr;`;
+          
+          // Clear for specific subdomains
+          document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=max.dwchem.co.kr;`;
+          document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=maxlab.dwchem.co.kr;`;
+        } else {
+          // For localhost, just clear without domain
+          document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; domain=localhost;`;
+        }
       });
       
-      console.log('✅ Cookies cleared for .dwchem.co.kr');
+      console.log('✅ Cookies cleared');
     } catch (error) {
       console.error('❌ Failed to clear cookies:', error);
     }
