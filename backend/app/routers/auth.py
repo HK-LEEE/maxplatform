@@ -190,21 +190,27 @@ def store_refresh_token(
 def verify_refresh_token(db: Session, refresh_token: str) -> Optional[RefreshToken]:
     """Refresh Token 검증"""
     try:
+        logger.debug("Attempting to verify refresh token")
+        
         # JWT 디코딩
         payload = jwt.decode(refresh_token, settings.secret_key, algorithms=[settings.algorithm])
         
         # 토큰 타입 확인
-        if payload.get("type") != "refresh":
+        token_type = payload.get("type")
+        if token_type != "refresh":
+            logger.warning(f"Invalid token type for refresh: {token_type}")
             return None
             
         user_id = payload.get("sub")
         if not user_id:
+            logger.warning("No user_id in refresh token payload")
             return None
         
         # 문자열을 UUID 객체로 변환
         try:
             user_uuid = uuid_module.UUID(user_id)
         except ValueError:
+            logger.warning(f"Invalid UUID format for user_id: {user_id}")
             return None
         
         # 데이터베이스에서 토큰 조회
@@ -213,12 +219,25 @@ def verify_refresh_token(db: Session, refresh_token: str) -> Optional[RefreshTok
             RefreshToken.user_id == user_uuid
         ).first()
         
-        if not token_record or not token_record.is_valid():
+        if not token_record:
+            logger.warning(f"Refresh token not found in database for user: {user_id}")
             return None
             
+        if not token_record.is_valid():
+            logger.warning(f"Refresh token is not valid (expired/revoked) for user: {user_id}")
+            return None
+        
+        logger.debug(f"Refresh token verified successfully for user: {user_id}")
         return token_record
         
-    except JWTError:
+    except jwt.ExpiredSignatureError:
+        logger.warning("Refresh token has expired")
+        return None
+    except JWTError as e:
+        logger.warning(f"JWT decode error for refresh token: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error verifying refresh token: {e}")
         return None
 
 def get_user_by_email(db: Session, email: str):
@@ -585,9 +604,19 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
 @router.post("/refresh", response_model=AccessTokenResponse)
 async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db)):
     """Refresh Token으로 새로운 Access Token 발급"""
+    logger.info("Refresh token request received")
+    
+    if not token_data.refresh_token:
+        logger.warning("No refresh token provided in request body")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Refresh token is required in request body"
+        )
+    
     token_record = verify_refresh_token(db, token_data.refresh_token)
     
     if not token_record:
+        logger.warning("Invalid refresh token provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않은 refresh token입니다."

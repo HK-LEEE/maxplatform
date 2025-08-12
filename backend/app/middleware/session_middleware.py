@@ -45,8 +45,15 @@ class SessionMiddleware(BaseHTTPMiddleware):
         """
         Process each request to ensure JWT-Redis session consistency
         """
-        # Skip middleware for health checks and static files
-        if request.url.path in ["/health", "/docs", "/redoc", "/openapi.json"]:
+        # Skip middleware for health checks, static files, and auth endpoints that don't need session validation
+        exempt_paths = [
+            "/health", "/docs", "/redoc", "/openapi.json",
+            "/api/auth/refresh",  # Refresh endpoint should handle its own token validation
+            "/api/auth/login",    # Login endpoint creates sessions, doesn't need validation
+            "/api/auth/register"  # Register endpoint creates users, doesn't need validation
+        ]
+        
+        if request.url.path in exempt_paths:
             return await call_next(request)
         
         # Extract JWT token
