@@ -190,6 +190,10 @@ class UserActivationRequest(BaseModel):
     user_id: str
     is_active: bool
 
+class UserAdminToggleRequest(BaseModel):
+    user_id: str
+    is_admin: bool
+
 class UserUpdateRequest(BaseModel):
     real_name: str
     display_name: str = ""
@@ -507,6 +511,34 @@ async def activate_user(
     
     status_text = "활성화" if request.is_active else "비활성화"
     return {"message": f"사용자 계정이 {status_text}되었습니다."}
+
+# 사용자 관리자 권한 부여/회수
+@router.post("/users/toggle-admin")
+async def toggle_user_admin(
+    request: UserAdminToggleRequest,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_admin_user)
+):
+    """사용자 관리자 권한 부여/회수"""
+    user = db.query(User).filter(User.id == request.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="사용자를 찾을 수 없습니다."
+        )
+    
+    # 자기 자신의 관리자 권한은 해제할 수 없음
+    if str(user.id) == str(current_admin.id) and not request.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="자신의 관리자 권한은 해제할 수 없습니다."
+        )
+    
+    user.is_admin = request.is_admin
+    db.commit()
+    
+    status_text = "부여" if request.is_admin else "회수"
+    return {"message": f"사용자의 관리자 권한이 {status_text}되었습니다."}
 
 # 사용자 권한 부여/회수
 @router.post("/users/permissions")

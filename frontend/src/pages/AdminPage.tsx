@@ -431,6 +431,35 @@ const AdminPage: React.FC = () => {
     }
   };
 
+  const toggleUserAdmin = async (userId: string, isAdmin: boolean) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/admin/users/toggle-admin`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          is_admin: isAdmin
+        })
+      });
+
+      if (response.ok) {
+        await fetchData();
+        const statusText = isAdmin ? '부여' : '회수';
+        alert(`관리자 권한이 ${statusText}되었습니다.`);
+      } else {
+        const error = await response.json();
+        alert(`오류: ${error.detail || '관리자 권한 변경 실패'}`);
+      }
+    } catch (error) {
+      console.error('관리자 권한 변경 실패:', error);
+      alert('관리자 권한 변경 중 오류가 발생했습니다.');
+    }
+  };
+
   const openAddUserModal = () => {
     setNewUserInfo({
       real_name: '',
@@ -1372,6 +1401,24 @@ const AdminPage: React.FC = () => {
                                 title="활성화"
                               >
                                 <Eye className="w-4 h-4 text-green-600" />
+                              </button>
+                            )}
+                            
+                            {user.is_admin ? (
+                              <button
+                                onClick={() => toggleUserAdmin(user.id, false)}
+                                className="p-1.5 hover:bg-orange-100 rounded-lg transition-colors"
+                                title="관리자 권한 회수"
+                              >
+                                <Shield className="w-4 h-4 text-orange-600" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => toggleUserAdmin(user.id, true)}
+                                className="p-1.5 hover:bg-purple-100 rounded-lg transition-colors"
+                                title="관리자 권한 부여"
+                              >
+                                <Shield className="w-4 h-4 text-purple-600" />
                               </button>
                             )}
                             
