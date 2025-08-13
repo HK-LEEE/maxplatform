@@ -12,6 +12,7 @@ import FlowStudioPage from './pages/FlowStudioPage'
 import MainLayout from './components/Layout/MainLayout'
 import DashboardPage from './pages/DashboardPage'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { GlobalLogoutProvider } from './components/GlobalLogoutModal'
 import { Toaster } from 'react-hot-toast'
 import FlowStudioProjectsPage from './pages/FlowStudioProjectsPage'
 import FlowStudioWorkspacePage from './pages/FlowStudioWorkspacePage'
@@ -51,8 +52,9 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <div className="App">
+      <GlobalLogoutProvider>
+        <Router>
+          <div className="App">
           <Toaster 
             position="top-right"
             toastOptions={{
@@ -146,8 +148,9 @@ function App() {
             {/* Catch All */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </div>
-      </Router>
+          </div>
+        </Router>
+      </GlobalLogoutProvider>
     </AuthProvider>
   )
 }
