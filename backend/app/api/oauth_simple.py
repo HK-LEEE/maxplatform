@@ -3177,3 +3177,155 @@ async def oauth_logout(
     response.headers["Expires"] = "0"
     
     return response
+
+
+@router.get("/check_session")
+async def check_session(
+    request: Request,
+    client_id: Optional[str] = Query(None),
+    session_state: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    OIDC Session Management - Check Session Iframe Endpoint
+    
+    This endpoint is designed to be loaded in an iframe by client applications
+    to check if the user's session is still active. It returns an HTML page
+    that can communicate with the parent window via postMessage.
+    
+    Used for OIDC Session Management (OP iframe) as per:
+    https://openid.net/specs/openid-connect-session-1_0.html#OPiframe
+    """
+    
+    # Check if user has a valid session
+    session_valid = False
+    user_id = None
+    
+    try:
+        # Try to get current user from various sources
+        current_user = await get_current_user_optional(request, db)
+        if current_user:
+            session_valid = True
+            user_id = str(current_user.id)
+            logger.debug(f"Session check: User {current_user.email} has valid session")
+        else:
+            logger.debug("Session check: No valid user session found")
+    except Exception as e:
+        logger.debug(f"Session check error: {e}")
+        session_valid = False
+    
+    # Generate session state if not provided (should match client's session state)
+    if not session_state and session_valid and client_id:
+        # Generate a simple session state based on user_id and client_id
+        import hashlib
+        session_state = hashlib.sha256(f"{user_id}:{client_id}:{int(time.time() // 300)}".encode()).hexdigest()[:16]
+    
+    # HTML content for the iframe
+    # This implements the OIDC Session Management check_session_iframe
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>OIDC Session Check</title>
+        <style>
+            body {{ margin: 0; padding: 0; font-family: Arial, sans-serif; font-size: 12px; }}
+            .status {{ padding: 5px; background: {'#e8f5e8' if session_valid else '#ffeaa7'}; }}
+        </style>
+    </head>
+    <body>
+        <div class="status">
+            Session: {'Valid' if session_valid else 'Invalid'}
+            {f' | Client: {client_id}' if client_id else ''}
+            {f' | State: {session_state}' if session_state else ''}
+        </div>
+        
+        <script>
+            (function() {{
+                var clientId = '{client_id or ''}';
+                var sessionState = '{session_state or ''}';
+                var sessionValid = {'true' if session_valid else 'false'};
+                
+                // Listen for session check requests from parent window
+                window.addEventListener('message', function(e) {{
+                    if (e.origin !== window.location.origin) {{
+                        return; // Security: only respond to same-origin requests
+                    }}
+                    
+                    try {{
+                        var data = e.data;
+                        if (typeof data === 'string') {{
+                            var parts = data.split(' ');
+                            if (parts.length >= 2) {{
+                                var checkClientId = parts[0];
+                                var checkSessionState = parts[1];
+                                
+                                var status = 'changed'; // Default to changed
+                                
+                                if (sessionValid && checkClientId === clientId) {{
+                                    if (checkSessionState === sessionState) {{
+                                        status = 'unchanged';
+                                    }} else {{
+                                        status = 'changed';
+                                    }}
+                                }} else {{
+                                    status = 'error';
+                                }}
+                                
+                                // Send response back to parent
+                                e.source.postMessage(status, e.origin);
+                            }}
+                        }}
+                    }} catch (err) {{
+                        // Send error response
+                        e.source.postMessage('error', e.origin);
+                    }}
+                }});
+                
+                // Periodically check session status
+                setInterval(function() {{
+                    try {{
+                        // Send keepalive message to parent if session is valid
+                        if (sessionValid && window.parent && window.parent !== window) {{
+                            window.parent.postMessage({{
+                                type: 'session_keepalive',
+                                client_id: clientId,
+                                session_state: sessionState,
+                                timestamp: new Date().getTime()
+                            }}, window.location.origin);
+                        }}
+                    }} catch (err) {{
+                        // Ignore errors in keepalive
+                    }}
+                }}, 30000); // Every 30 seconds
+                
+                console.log('OIDC Check Session iframe loaded', {{
+                    clientId: clientId,
+                    sessionState: sessionState,
+                    sessionValid: sessionValid
+                }});
+            }})();
+        </script>
+    </body>
+    </html>
+    """
+    
+    # Create response with proper headers for iframe usage
+    from fastapi.responses import HTMLResponse
+    response = HTMLResponse(content=html_content)
+    
+    # CRITICAL: Remove X-Frame-Options to allow framing
+    # This endpoint MUST be frameable for OIDC session management
+    if "X-Frame-Options" in response.headers:
+        del response.headers["X-Frame-Options"]
+    
+    # Set Content-Security-Policy to allow framing from same origin
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'self' https://*.dwchem.co.kr"
+    
+    # Cache control for session checking
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    
+    logger.info(f"Check session iframe served - Valid: {session_valid}, Client: {client_id}")
+    
+    return response

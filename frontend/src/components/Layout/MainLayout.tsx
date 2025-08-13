@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import SimpleLogoutModal from '../SimpleLogoutModal';
 import { useSimpleLogout } from '../../hooks/useSimpleLogout';
+import { useGlobalLogout } from '../GlobalLogoutModal';
 import toast from 'react-hot-toast';
 
 const MainLayout: React.FC = () => {
@@ -23,6 +24,9 @@ const MainLayout: React.FC = () => {
   
   // 간소화된 로그아웃 모달 관련
   const { executeLogout } = useSimpleLogout();
+  
+  // 전역 로그아웃 모달 관련
+  const { showLogout, showError, hideModal, updateProgress } = useGlobalLogout();
 
   // 사용자가 로그인되지 않은 경우 로그인 페이지로 리다이렉트
   useEffect(() => {
@@ -53,39 +57,45 @@ const MainLayout: React.FC = () => {
     try {
       console.log(`🔄 Starting ${logoutType} logout process...`);
       
-      // Show loading message
-      toast.loading('로그아웃 중... MAX Lab과 동기화하고 있습니다.', { 
-        id: 'logout-process',
-        duration: Infinity 
-      });
+      // Show loading modal instead of toast
+      showLogout(
+        'MAX Lab과 동기화하고 있습니다',
+        '모든 관련 시스템에서 안전하게 로그아웃하는 중입니다.'
+      );
+      updateProgress(10);
       
       // 백엔드 세션 로그아웃 API 호출 (선택적)
       if (logoutType === 'all' || logoutType === 'smart') {
         try {
           console.log('🔄 Calling backend logout API...');
+          updateProgress(30);
           await executeLogout(logoutType);
           console.log('✅ Backend logout API completed');
+          updateProgress(60);
         } catch (error) {
           console.warn('⚠️ 백엔드 로그아웃 API 오류:', error);
           // 오류가 있어도 계속 진행
+          updateProgress(50);
         }
       }
       
       // SSO 로그아웃 수행 (AuthContext의 logout 함수 사용)
       console.log('🔄 Performing SSO logout...');
+      updateProgress(80);
       await logout(true);
       
-      // Success message will be shown after redirect, so we dismiss the loading toast
-      toast.dismiss('logout-process');
+      // Success - modal will be hidden by navigation
+      updateProgress(100);
+      hideModal();
       
     } catch (error) {
       console.error('❌ Logout error:', error);
-      toast.dismiss('logout-process');
       
-      // Show error but still proceed with logout
-      toast.error('로그아웃 중 오류가 발생했지만 계속 진행합니다...', { 
-        duration: 2000 
-      });
+      // Show error modal instead of toast
+      showError(
+        '로그아웃 중 오류가 발생했지만 계속 진행합니다',
+        '일부 시스템에서 오류가 발생했지만 로그아웃을 완료합니다.'
+      );
       
       try {
         // Force logout even on error
