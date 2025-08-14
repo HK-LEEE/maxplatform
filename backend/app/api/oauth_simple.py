@@ -1383,13 +1383,16 @@ async def authorize(
                         expires_in_minutes=10
                     )
             
-            # Run security check and nonce storage in parallel using current event loop
+            # Run security check and nonce storage in parallel
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
             try:
                 # Start both operations in parallel
                 tasks = []
-                tasks.append(run_security_check())
+                tasks.append(loop.create_task(run_security_check()))
                 if nonce:
-                    tasks.append(store_nonce_async())
+                    tasks.append(loop.create_task(store_nonce_async()))
                 
                 # Create authorization code while other operations run
                 code = create_authorization_code_record(
@@ -1401,16 +1404,9 @@ async def authorize(
                 
                 # Wait for parallel operations to complete
                 if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-            except Exception as e:
-                logger.error(f"Error in parallel prompt=none processing: {e}")
-                # Create authorization code anyway to maintain functionality
-                code = create_authorization_code_record(
-                    client_id, str(current_user.id), redirect_uri, scope,
-                    code_challenge, code_challenge_method, db,
-                    nonce=nonce,
-                    auth_time=datetime.utcnow()
-                )
+                    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            finally:
+                loop.close()
             
             # Create or update OAuth session
             try:
