@@ -288,16 +288,16 @@ const DashboardPage: React.FC = () => {
           {compactMode ? <Maximize className="w-5 h-5" /> : <Minimize className="w-5 h-5" />}
         </button>
         <button
-          onClick={() => setMiniChatOpen(true)}
-          className="bg-blue-500 text-white p-3 rounded-full shadow-lg hover:bg-blue-600 transition-colors hover:scale-110"
-          title="AI 채팅"
+          disabled
+          className="bg-gray-400 text-gray-300 p-3 rounded-full shadow-lg cursor-not-allowed opacity-60"
+          title="AI 채팅 (준비 중)"
         >
           <MessageCircle className="w-5 h-5" />
         </button>
         <button
-          onClick={() => navigate('/flow-studio')}
-          className="bg-purple-500 text-white p-3 rounded-full shadow-lg hover:bg-purple-600 transition-colors hover:scale-110"
-          title="플로우 스튜디오"
+          disabled
+          className="bg-gray-400 text-gray-300 p-3 rounded-full shadow-lg cursor-not-allowed opacity-60"
+          title="플로우 스튜디오 (준비 중)"
         >
           <Workflow className="w-5 h-5" />
         </button>
