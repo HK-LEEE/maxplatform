@@ -81,7 +81,54 @@ const processQueue = (error: any, token: string | null = null) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config
+    try {
+      const originalRequest = error.config
+
+      // 🚨 MOST AGGRESSIVE: Any refresh-related error = immediate redirect
+      const isRefreshRelated = originalRequest?.url?.includes('/auth/refresh') ||
+                              error.response?.data?.detail?.includes('refresh') ||
+                              error.response?.data?.message?.includes('refresh') ||
+                              error.response?.data?.error?.includes('refresh')
+      
+      if (error.response?.status === 401 && isRefreshRelated) {
+      console.error('🚨🚨🚨 CRITICAL: Refresh operation failed - FORCING IMMEDIATE REDIRECT')
+      console.error('Error details:', {
+        url: originalRequest?.url,
+        status: error.response?.status,
+        data: error.response?.data
+      })
+      
+      // 모든 인증 데이터 삭제
+      try {
+        localStorage.clear()
+        sessionStorage.clear()
+        
+        // 쿠키 삭제
+        document.cookie.split(";").forEach(c => {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+      } catch (e) {
+        console.error('Storage clear error:', e)
+      }
+      
+      // 즉시 로그인 페이지로 리다이렉트 - 가장 확실한 방법들 시도
+      console.warn('🚨🚨🚨 FORCING REDIRECT TO LOGIN NOW!')
+      
+      // Method 1: location.replace
+      window.location.replace('/login')
+      
+      // Method 2: location.href as backup
+      setTimeout(() => {
+        window.location.href = '/login'
+      }, 100)
+      
+      // Method 3: location.assign as final backup
+      setTimeout(() => {
+        window.location.assign('/login')
+      }, 200)
+      
+      return Promise.reject(error)
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
@@ -131,31 +178,48 @@ api.interceptors.response.use(
           lastError = errorMessage;
           consecutiveFailures++;
           
-          // 차등적 재시도 정책 적용
+          // 🚨 IMMEDIATE REDIRECT: Any error from refresh endpoint = force logout
+          console.error('🚨🚨🚨 Refresh endpoint error - IMMEDIATE REDIRECT');
+          console.error('Refresh error details:', {
+            message: errorMessage,
+            error: refreshError,
+            consecutiveFailures
+          });
+          
+          // Don't wait for retries - immediately redirect on ANY refresh failure
+          // 차등적 재시도 정책 적용 (로깅용으로만)
           const maxRetries = getMaxRetries('REFRESH_TOKEN_ERROR', errorMessage);
+          console.log(`📊 Would normally allow ${maxRetries} retries, but forcing immediate redirect`);
           
-          console.log(`❌ MAX Platform refresh token failed (attempt ${consecutiveFailures}/${maxRetries}):`, errorMessage);
-          console.log(`📊 Error analysis: ${maxRetries} retries allowed for this error type`);
-          
-          // 동적 실패 임계값에 도달 시에만 로그아웃
-          if (consecutiveFailures >= maxRetries) {
-            console.log(`❌ Reached maximum retries (${maxRetries}) for refresh token error, logging out user`);
+          // Force immediate redirect regardless of retry count
+          if (true) {  // Always true - immediate redirect on ANY refresh error
+            console.log(`❌ Reached maximum retries (${maxRetries}) for refresh token error, forcing logout`);
             console.log(`📊 Failure pattern: ${maxRetries} consecutive failures with error: ${errorMessage}`);
             
             // 리프레시 토큰도 만료된 경우
             processQueue(refreshError, null)
-            localStorage.removeItem('token')
-            localStorage.removeItem('refreshToken')
             
-            // 현재 페이지 정보를 저장하여 로그인 후 돌아올 수 있도록 함
+            // 모든 인증 관련 데이터 강제 삭제
+            localStorage.clear()  // 모든 localStorage 데이터 삭제
+            sessionStorage.clear()  // 모든 sessionStorage 데이터 삭제
+            
+            // 쿠키도 삭제
+            document.cookie.split(";").forEach(c => {
+              document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+            
+            // 현재 페이지 정보 저장 (clear 후에 다시 설정)
             const currentPath = window.location.pathname
             const authPaths = ['/login', '/register', '/reset-password', '/']
             
             if (!authPaths.includes(currentPath)) {
               localStorage.setItem('redirectAfterLogin', currentPath)
-              console.warn('Session expired. Redirecting to login...')
-              window.location.href = '/login'
             }
+            
+            console.warn('🚨 Session expired. Force redirecting to login...')
+            
+            // 강제 리다이렉트 - replace 사용으로 뒤로가기 방지
+            window.location.replace('/login')
             
             // 실패 카운터 리셋
             consecutiveFailures = 0;
@@ -171,21 +235,39 @@ api.interceptors.response.use(
           isRefreshing = false
         }
       } else {
-        // 리프레시 토큰이 없는 경우
-        localStorage.removeItem('token')
+        // 리프레시 토큰이 없는 경우 - 강제 로그아웃 및 리다이렉트
+        console.warn('🚨 No refresh token found. Force clearing session...')
+        
+        // 모든 인증 관련 데이터 강제 삭제
+        localStorage.clear()
+        sessionStorage.clear()
+        
+        // 쿠키도 삭제
+        document.cookie.split(";").forEach(c => {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
         
         const currentPath = window.location.pathname
         const authPaths = ['/login', '/register', '/reset-password', '/']
         
         if (!authPaths.includes(currentPath)) {
           localStorage.setItem('redirectAfterLogin', currentPath)
-          console.warn('No valid session found. Redirecting to login...')
-          window.location.href = '/login'
+          console.warn('🚨 No valid session found. Force redirecting to login...')
+          window.location.replace('/login')
         }
       }
     }
     
     return Promise.reject(error)
+    } catch (interceptorError) {
+      // If ANYTHING goes wrong in the interceptor, still try to redirect on auth failures
+      console.error('🚨 Interceptor error:', interceptorError);
+      if (error?.response?.status === 401) {
+        console.error('🚨 Auth failure detected in error handler - forcing redirect');
+        window.location.replace('/login');
+      }
+      return Promise.reject(error);
+    }
   }
 )
 
@@ -437,6 +519,42 @@ export const testUtils = {
 // 전역에서 접근 가능하도록 설정
 if (typeof window !== 'undefined') {
   window.maxPlatformTestUtils = testUtils;
+  
+  // 🚨 Global safety net for refresh failures
+  window.addEventListener('unhandledrejection', (event) => {
+    const error = event.reason;
+    const errorMessage = error?.message || error?.response?.data?.detail || String(error);
+    
+    // Check if this is a refresh token failure
+    if (errorMessage.includes('refresh') && errorMessage.includes('401')) {
+      console.error('🚨 Global handler caught refresh failure:', errorMessage);
+      
+      // Clear everything and force redirect
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+        document.cookie.split(";").forEach(c => {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+      } catch (e) {
+        console.error('Global handler storage clear error:', e);
+      }
+      
+      // Force redirect to login
+      window.location.replace('/login');
+    }
+  });
+  
+  // 🚨 Also catch any axios errors globally
+  window.addEventListener('error', (event) => {
+    const errorMessage = event.message || '';
+    if (errorMessage.includes('refresh') && errorMessage.includes('401')) {
+      console.error('🚨 Global error handler caught refresh failure:', errorMessage);
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.replace('/login');
+    }
+  });
 }
 
 export default api
