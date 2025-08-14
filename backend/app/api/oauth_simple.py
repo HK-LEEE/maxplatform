@@ -154,7 +154,8 @@ def create_refresh_token_record(
     scope: str,
     access_token_hash: str,
     request: Request,
-    db: Session
+    db: Session,
+    session_id: str = None
 ) -> str:
     """Create and store a new refresh token"""
     refresh_token = generate_refresh_token()
@@ -170,9 +171,9 @@ def create_refresh_token_record(
             text("""
                 INSERT INTO oauth_refresh_tokens 
                 (token_hash, client_id, user_id, scope, access_token_hash, 
-                 expires_at, client_ip, user_agent, rotation_count)
+                 expires_at, client_ip, user_agent, rotation_count, session_id)
                 VALUES (:token_hash, :client_id, :user_id, :scope, :access_token_hash,
-                        :expires_at, :client_ip, :user_agent, 0)
+                        :expires_at, :client_ip, :user_agent, 0, :session_id)
             """),
             {
                 "token_hash": refresh_token_hash,
@@ -182,7 +183,8 @@ def create_refresh_token_record(
                 "access_token_hash": access_token_hash,
                 "expires_at": expires_at,
                 "client_ip": client_ip,
-                "user_agent": user_agent
+                "user_agent": user_agent,
+                "session_id": session_id
             }
         )
         db.commit()
@@ -376,7 +378,8 @@ def rotate_refresh_token(
     client_id: str, 
     scope: str,
     request: Request,
-    db: Session
+    db: Session,
+    session_id: str = None
 ) -> tuple[str, str]:
     """Rotate refresh token with graceful rotation (security best practice + reliability)"""
     try:
@@ -423,9 +426,9 @@ def rotate_refresh_token(
             text("""
                 INSERT INTO oauth_refresh_tokens 
                 (token_hash, client_id, user_id, scope, access_token_hash, expires_at, 
-                 client_ip, user_agent, rotation_count, parent_token_hash, token_status)
+                 client_ip, user_agent, rotation_count, parent_token_hash, token_status, session_id)
                 SELECT :new_token_hash, client_id, user_id, scope, :new_access_token_hash, :expires_at,
-                       :client_ip, :user_agent, rotation_count + 1, :old_token_hash, 'active'
+                       :client_ip, :user_agent, rotation_count + 1, :old_token_hash, 'active', session_id
                 FROM oauth_refresh_tokens 
                 WHERE token_hash = :old_token_hash
             """),
@@ -444,8 +447,8 @@ def rotate_refresh_token(
         db.execute(
             text("""
                 INSERT INTO oauth_access_tokens 
-                (token_hash, client_id, user_id, scope, expires_at, refresh_token_hash)
-                VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at, :refresh_token_hash)
+                (token_hash, client_id, user_id, scope, expires_at, refresh_token_hash, session_id)
+                VALUES (:token_hash, :client_id, :user_id, :scope, :expires_at, :refresh_token_hash, :session_id)
             """),
             {
                 "token_hash": new_access_token_hash,
@@ -453,7 +456,8 @@ def rotate_refresh_token(
                 "user_id": user_id,
                 "scope": scope,
                 "expires_at": access_token_expires,
-                "refresh_token_hash": new_refresh_token_hash
+                "refresh_token_hash": new_refresh_token_hash,
+                "session_id": session_id
             }
         )
         
@@ -2200,13 +2204,17 @@ def handle_authorization_code_grant(
     )
     
     # Create refresh token
+    # Extract session ID for session-scoped token management
+    session_id = request.cookies.get('session_id') if request else None
+    
     refresh_token = create_refresh_token_record(
         auth_code_dict['user_id'],
         client_id,
         auth_code_dict['scope'] or "read:profile",
         token_hash,
         request,
-        db
+        db,
+        session_id
     )
     
     # Check if openid scope is requested for ID token generation
@@ -2345,19 +2353,26 @@ def handle_refresh_token_grant(
     
     logger.info(f"Refresh token validation successful for client_id: {client_id}, user_id: {token_info['user_id']}")
     
-    # Get Redis coordinator for distributed locking
+    # Get Redis coordinator for distributed locking with session isolation
     try:
         redis_store = get_session_store()
         if redis_store and redis_store.redis_client:
             coordinator = get_token_refresh_coordinator(redis_store.redis_client)
             
-            # Use distributed lock to prevent race conditions
-            with coordinator.acquire_refresh_lock(token_info['user_id'], client_id) as lock_acquired:
+            # Extract session ID from request for session-scoped token management
+            session_id = request.cookies.get('session_id') if request else None
+            logger.info(f"🔐 Token refresh with session isolation - user={token_info['user_id']}, client={client_id}, session={session_id}")
+            
+            # Use distributed lock to prevent race conditions with session scope
+            with coordinator.acquire_refresh_lock(token_info['user_id'], client_id, session_id) as lock_acquired:
                 if lock_acquired is None:
-                    # Using cached result from another concurrent refresh
-                    cached = coordinator._get_cached_refresh(token_info['user_id'], client_id)
+                    # Using cached result from another concurrent refresh with session scope
+                    cached = coordinator._get_cached_refresh(token_info['user_id'], client_id, session_id)
                     if cached:
-                        logger.info(f"📦 Using cached refresh result for user={token_info['user_id']}")
+                        if session_id:
+                            logger.info(f"📦 Using cached refresh result for user={token_info['user_id']}, session={session_id}")
+                        else:
+                            logger.info(f"📦 Using cached refresh result for user={token_info['user_id']}")
                         return TokenResponse(
                             access_token=cached['access_token'],
                             token_type="Bearer",
@@ -2375,16 +2390,18 @@ def handle_refresh_token_grant(
                     client_id,
                     token_info['scope'],
                     request,
-                    db
+                    db,
+                    session_id
                 )
                 
-                # Cache the result for other concurrent requests
+                # Cache the result for other concurrent requests with session scope
                 coordinator.cache_refresh_result(
                     token_info['user_id'],
                     client_id,
                     new_access_token,
                     new_refresh_token,
-                    settings.access_token_expire_minutes * 60
+                    settings.access_token_expire_minutes * 60,
+                    session_id
                 )
                 
                 logger.info(f"Token rotation successful (with Redis) for client_id: {client_id}, user_id: {token_info['user_id']}")
@@ -2430,14 +2447,16 @@ def handle_refresh_token_grant(
                 return TokenResponse(**response_data)
         else:
             # Fallback to original behavior if Redis is not available
-            logger.warning("⚠️ Redis not available, proceeding without distributed lock")
+            session_id = request.cookies.get('session_id') if request else None
+            logger.warning(f"⚠️ Redis not available, proceeding without distributed lock (session={session_id})")
             new_access_token, new_refresh_token = rotate_refresh_token(
                 token_info['token_hash'],
                 token_info['user_id'],
                 client_id,
                 token_info['scope'],
                 request,
-                db
+                db,
+                session_id
             )
             
             logger.info(f"Token rotation successful (without Redis) for client_id: {client_id}, user_id: {token_info['user_id']}")

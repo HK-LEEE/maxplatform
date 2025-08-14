@@ -27,18 +27,23 @@ class TokenRefreshCoordinator:
         self.refresh_cache_ttl = 10  # seconds for caching successful refreshes
     
     @contextmanager
-    def acquire_refresh_lock(self, user_id: str, client_id: str):
+    def acquire_refresh_lock(self, user_id: str, client_id: str, session_id: str = None):
         """
-        Acquire a distributed lock for token refresh operation
+        Acquire a distributed lock for token refresh operation with session isolation
         
         Args:
             user_id: User identifier
             client_id: OAuth client identifier
+            session_id: Optional session identifier for session-scoped locking
             
         Yields:
             Lock key if acquired, raises exception if timeout
         """
-        lock_key = f"token_refresh_lock:{user_id}:{client_id}"
+        # Use session-scoped locking if session_id provided, otherwise fall back to user+client
+        if session_id:
+            lock_key = f"token_refresh_lock:{user_id}:{client_id}:{session_id}"
+        else:
+            lock_key = f"token_refresh_lock:{user_id}:{client_id}"
         lock_value = f"{time.time()}_{id(self)}"  # Unique lock identifier
         start_time = time.time()
         
@@ -63,9 +68,13 @@ class TokenRefreshCoordinator:
                     return
                 
                 # Check if there's a recent successful refresh we can use
-                cached_result = self._get_cached_refresh(user_id, client_id)
+                # Use session-scoped cache if session_id provided
+                cached_result = self._get_cached_refresh(user_id, client_id, session_id)
                 if cached_result:
-                    logger.info(f"📦 Using cached refresh result for user={user_id}, client={client_id}")
+                    if session_id:
+                        logger.info(f"📦 Using cached refresh result for user={user_id}, client={client_id}, session={session_id}")
+                    else:
+                        logger.info(f"📦 Using cached refresh result for user={user_id}, client={client_id}")
                     yield None  # Signal to use cached result
                     return
                 
@@ -114,10 +123,11 @@ class TokenRefreshCoordinator:
         client_id: str, 
         access_token: str,
         refresh_token: str,
-        expires_in: int
+        expires_in: int,
+        session_id: str = None
     ):
         """
-        Cache successful refresh result for fast retrieval
+        Cache successful refresh result for fast retrieval with session isolation
         
         Args:
             user_id: User identifier
@@ -125,8 +135,13 @@ class TokenRefreshCoordinator:
             access_token: New access token
             refresh_token: New refresh token
             expires_in: Token expiry in seconds
+            session_id: Optional session identifier for session-scoped caching
         """
-        cache_key = f"token_refresh_cache:{user_id}:{client_id}"
+        # Use session-scoped cache if session_id provided
+        if session_id:
+            cache_key = f"token_refresh_cache:{user_id}:{client_id}:{session_id}"
+        else:
+            cache_key = f"token_refresh_cache:{user_id}:{client_id}"
         cache_data = {
             "access_token": access_token,
             "refresh_token": refresh_token,
@@ -141,7 +156,10 @@ class TokenRefreshCoordinator:
                 self.refresh_cache_ttl,
                 str(cache_data)
             )
-            logger.debug(f"💾 Cached refresh result for user={user_id}, client={client_id}")
+            if session_id:
+                logger.debug(f"💾 Cached refresh result for user={user_id}, client={client_id}, session={session_id}")
+            else:
+                logger.debug(f"💾 Cached refresh result for user={user_id}, client={client_id}")
             
         except RedisError as e:
             logger.error(f"❌ Error caching refresh result: {e}")
@@ -149,19 +167,25 @@ class TokenRefreshCoordinator:
     def _get_cached_refresh(
         self, 
         user_id: str, 
-        client_id: str
+        client_id: str,
+        session_id: str = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Retrieve cached refresh result if available and valid
+        Retrieve cached refresh result if available and valid with session isolation
         
         Args:
             user_id: User identifier
             client_id: OAuth client identifier
+            session_id: Optional session identifier for session-scoped caching
             
         Returns:
             Cached token data if available and fresh, None otherwise
         """
-        cache_key = f"token_refresh_cache:{user_id}:{client_id}"
+        # Use session-scoped cache if session_id provided
+        if session_id:
+            cache_key = f"token_refresh_cache:{user_id}:{client_id}:{session_id}"
+        else:
+            cache_key = f"token_refresh_cache:{user_id}:{client_id}"
         
         try:
             cached = self.redis.get(cache_key)
