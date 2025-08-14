@@ -249,7 +249,7 @@ def verify_refresh_token(db: Session, refresh_token: str, session_id: str = None
             # 디버깅을 위해 전체 토큰 상황 조회
             all_tokens = db.query(RefreshToken).filter(
                 RefreshToken.user_id == user_uuid,
-                RefreshToken.revoked == False
+                RefreshToken.is_revoked == False
             ).all()
             
             logger.warning(f"🔍 Token lookup failed - Total active tokens for user: {len(all_tokens)}")
@@ -263,7 +263,7 @@ def verify_refresh_token(db: Session, refresh_token: str, session_id: str = None
             
         if not token_record.is_valid():
             logger.warning(f"⚠️ Refresh token is not valid (expired/revoked) for user: {user_id}")
-            logger.debug(f"   Token details: expired={token_record.expires_at < datetime.now(timezone.utc)}, revoked={token_record.revoked}")
+            logger.debug(f"   Token details: expired={token_record.expires_at < datetime.now(timezone.utc)}, revoked={token_record.is_revoked}")
             return None
         
         logger.debug(f"✅ Refresh token verified successfully for user: {user_id}, session: {session_id}")
@@ -655,8 +655,8 @@ async def refresh_token(token_data: TokenRefresh, request: Request, db: Session 
     
     # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
     try:
-        import jwt
-        payload = jwt.decode(token_data.refresh_token, options={"verify_signature": False})
+        from jwt import decode
+        payload = decode(token_data.refresh_token, options={"verify_signature": False})
         request_user_id = payload.get("sub")
         logger.debug(f"📄 Token payload analysis - user_id: {request_user_id}")
         
