@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from ..database import get_db
 from ..models import User, Role, Group, Permission, Feature, RefreshToken
 from ..config import settings
-from ..utils.auth import get_current_user, verify_password, get_password_hash, create_access_token, create_refresh_token
+from ..utils.auth import get_current_user, get_current_user_optional, verify_password, get_password_hash, create_access_token, create_refresh_token
 # Import Redis session management for OAuth SSO consistency
 from ..core.oauth_redis_integration import get_oauth_redis_manager, set_oauth_session_cookies
 from ..core.redis_session import create_user_session
