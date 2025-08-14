@@ -647,6 +647,118 @@ async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db))
         "expires_in": settings.access_token_expire_minutes * 60
     }
 
+@router.get("/current-token")
+async def get_current_token(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current valid access token from Redis session
+    Used for cross-domain token synchronization between max.dwchem.co.kr and maxlab.dwchem.co.kr
+    """
+    import time
+    from ..core.redis_session import get_session_store
+    
+    logger.info("Current token request received for cross-domain sync")
+    
+    # Check session cookie first
+    session_id = request.cookies.get("max_session_id")
+    if not session_id:
+        # Fallback to checking the request header token
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            
+            # Validate the token is still valid
+            try:
+                payload = jwt.decode(
+                    token, 
+                    settings.secret_key, 
+                    algorithms=[settings.algorithm]
+                )
+                exp = payload.get('exp')
+                if exp and exp > time.time():
+                    logger.info("Returning token from Authorization header")
+                    return {
+                        "access_token": token,
+                        "expires_in": int(exp - time.time()),
+                        "source": "header",
+                        "synced": False
+                    }
+            except jwt.JWTError as e:
+                logger.warning(f"Invalid token in header: {e}")
+        
+        logger.warning("No session found for current-token request")
+        raise HTTPException(status_code=401, detail="No session found")
+    
+    # Get session from Redis
+    try:
+        session_store = get_session_store()
+        if not session_store:
+            logger.warning("Redis session store not available")
+            raise HTTPException(status_code=503, detail="Session store unavailable")
+            
+        session_data = session_store.get_session(session_id)
+        
+        if session_data and session_data.get('oauth_tokens'):
+            tokens = session_data['oauth_tokens']
+            access_token = tokens.get('access_token')
+            
+            if access_token:
+                # Validate token is not expired
+                try:
+                    payload = jwt.decode(
+                        access_token, 
+                        settings.secret_key, 
+                        algorithms=[settings.algorithm]
+                    )
+                    exp = payload.get('exp')
+                    if exp and exp > time.time():
+                        logger.info(f"Returning valid token from Redis session {session_id}")
+                        return {
+                            "access_token": access_token,
+                            "expires_in": int(exp - time.time()),
+                            "source": "redis",
+                            "synced": True
+                        }
+                    else:
+                        logger.info("Token in Redis is expired, creating new one")
+                except jwt.JWTError as e:
+                    logger.warning(f"Invalid token in Redis: {e}")
+        
+        # If no valid token in Redis but user is authenticated, create new one
+        if current_user:
+            logger.info(f"Creating new token for user {current_user.email}")
+            access_token = create_access_token(
+                data={"sub": str(current_user.id)},
+                expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
+            )
+            
+            # Store in Redis session
+            if session_data:
+                session_store.store_oauth_tokens(session_id, {
+                    "access_token": access_token,
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+                logger.info(f"Stored new token in Redis session {session_id}")
+            
+            return {
+                "access_token": access_token,
+                "expires_in": settings.access_token_expire_minutes * 60,
+                "source": "new",
+                "synced": True
+            }
+        else:
+            logger.warning("No current user and no valid token in session")
+            raise HTTPException(status_code=401, detail="Authentication required")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current token: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get current token")
+
 @router.post("/logout")
 async def logout(
     request: Request,

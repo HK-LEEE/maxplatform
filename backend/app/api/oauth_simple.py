@@ -1980,6 +1980,7 @@ def token(
     refresh_token: Optional[str] = Form(None),
     scope: Optional[str] = Form(None),
     request: Request = None,
+    response: Response = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -1994,10 +1995,41 @@ def token(
         cleanup_expired_tokens(db)
         
         if grant_type == "authorization_code":
-            return handle_authorization_code_grant(
+            result = handle_authorization_code_grant(
                 code, redirect_uri, client_id, client_secret, 
                 code_verifier, request, db
             )
+            
+            # Set cross-domain session cookie if Redis session was created
+            if response and request:
+                # Extract session ID from the authorization code flow
+                # The session would have been created during the token generation
+                try:
+                    from ..core.redis_session import get_session_store
+                    session_store = get_session_store()
+                    if session_store:
+                        # Try to get the most recent session for this user
+                        # This is a workaround - ideally we'd pass the session_id through
+                        cookie_domain = ".dwchem.co.kr" if "dwchem.co.kr" in str(request.url) else None
+                        
+                        # Check if we have a session_id in the request state
+                        if hasattr(request.state, 'redis_session_id'):
+                            session_id = request.state.redis_session_id
+                            response.set_cookie(
+                                key="max_session_id",
+                                value=session_id,
+                                domain=cookie_domain,
+                                secure=not settings.debug,
+                                httponly=True,
+                                samesite="lax",
+                                max_age=86400,
+                                path="/"
+                            )
+                            logger.info(f"🍪 Cross-domain session cookie set: max_session_id={session_id[:8]}... domain={cookie_domain}")
+                except Exception as e:
+                    logger.debug(f"Could not set cross-domain cookie: {e}")
+            
+            return result
         elif grant_type == "refresh_token":
             return handle_refresh_token_grant(
                 refresh_token, client_id, client_secret, request, db
@@ -2285,6 +2317,11 @@ def handle_authorization_code_grant(
         
         if redis_session_id:
             logger.info(f"✅ Redis session created for OAuth token: {redis_session_id} (user: {user.email}, client: {client_id})")
+            
+            # Store session ID in request state for cookie setting
+            if request:
+                request.state.redis_session_id = redis_session_id
+                
         else:
             logger.warning(f"⚠️ Redis session creation failed for user {user.email} and client {client_id} - continuing with database-only session")
             
