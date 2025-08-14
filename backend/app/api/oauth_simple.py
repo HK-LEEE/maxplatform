@@ -2372,6 +2372,48 @@ def handle_refresh_token_grant(
                 request,
                 db
             )
+            
+            logger.info(f"Token rotation successful (without Redis) for client_id: {client_id}, user_id: {token_info['user_id']}")
+            
+            # Log successful token refresh
+            log_oauth_action(
+                "token", client_id, token_info['user_id'], True,
+                None, None, request, db
+            )
+            
+            # Check if openid scope is requested for ID token generation
+            scopes = token_info['scope'].split() if token_info['scope'] else []
+            response_data = {
+                "access_token": new_access_token,
+                "token_type": "Bearer",
+                "expires_in": settings.access_token_expire_minutes * 60,
+                "scope": token_info['scope'],
+                "refresh_token": new_refresh_token,
+                "refresh_expires_in": 30 * 24 * 60 * 60  # 30 days in seconds
+            }
+            
+            # Check if OIDC is enabled for this client
+            client_oidc_enabled = check_client_oidc_status(client_id, db)
+            
+            if "openid" in scopes and client_oidc_enabled:
+                # Import ID token service
+                from ..services.id_token_service import id_token_service
+                
+                # Get user for ID token
+                user = db.query(User).filter(User.id == token_info['user_id']).first()
+                if user:
+                    # Create ID token for refresh (preserving original auth_time if available)
+                    id_token = id_token_service.refresh_id_token(
+                        user=user,
+                        client_id=client_id,
+                        scopes=scopes,
+                        db=db,
+                        original_auth_time=token_info.get('auth_time')
+                    )
+                    response_data["id_token"] = id_token
+                    logger.info(f"ID token refreshed for user {user.id} with client {client_id}")
+            
+            return TokenResponse(**response_data)
     except TimeoutError:
         logger.error(f"⏱️ Token refresh lock timeout for user={token_info['user_id']}, client={client_id}")
         raise HTTPException(status_code=503, detail="Service temporarily unavailable, please retry")
