@@ -508,18 +508,17 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
                     db.execute(
                         text("""
                             INSERT INTO oauth_clients 
-                            (client_id, client_secret, redirect_uris, grant_types, 
-                             response_types, scope, is_active, is_confidential)
-                            VALUES (:client_id, :client_secret, :redirect_uris, :grant_types,
-                                    :response_types, :scope, true, false)
+                            (client_id, client_secret, client_name, redirect_uris, 
+                             allowed_scopes, is_active, is_confidential)
+                            VALUES (:client_id, :client_secret, :client_name, :redirect_uris,
+                                    :allowed_scopes, true, false)
                         """),
                         {
                             "client_id": "maxplatform-web",
                             "client_secret": "not-used-for-jwt",
-                            "redirect_uris": "https://max.dwchem.co.kr,https://maxlab.dwchem.co.kr",
-                            "grant_types": "password,refresh_token",
-                            "response_types": "token",
-                            "scope": "openid profile email"
+                            "client_name": "MAX Platform Web Client",
+                            "redirect_uris": ["https://max.dwchem.co.kr", "https://maxlab.dwchem.co.kr"],
+                            "allowed_scopes": ["openid", "profile", "email", "read:profile", "read:features"]
                         }
                     )
                 
