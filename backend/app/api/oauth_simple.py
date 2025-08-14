@@ -32,6 +32,8 @@ from ..core.oauth_redis_integration import (
     set_oauth_session_cookies,
     clear_oauth_session_cookies
 )
+from ..core.token_refresh_coordinator import get_token_refresh_coordinator
+from ..core.redis_session import get_session_store
 
 logger = get_oauth_logger()
 
@@ -1871,6 +1873,77 @@ def token_options():
     """Handle CORS preflight requests for token endpoint"""
     return {}
 
+@router.post("/preemptive-refresh", response_model=TokenResponse)
+def preemptive_refresh(
+    request: Request = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_optional)
+):
+    """
+    Preemptive token refresh endpoint
+    Refreshes token if it expires in less than 5 minutes
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check token expiry from JWT
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = auth_header.split(" ")[1]
+    
+    try:
+        # Decode token to check expiry
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=["HS256"])
+        exp = payload.get("exp")
+        
+        if not exp:
+            raise HTTPException(status_code=400, detail="Token has no expiry")
+        
+        # Check if token expires in less than 5 minutes
+        time_to_expiry = exp - time.time()
+        
+        if time_to_expiry > 300:  # More than 5 minutes
+            logger.info(f"Token still valid for {time_to_expiry:.0f}s, no refresh needed")
+            return TokenResponse(
+                access_token=token,
+                token_type="Bearer",
+                expires_in=int(time_to_expiry),
+                scope=payload.get("scope", ""),
+                refresh_token=None  # Don't expose refresh token unnecessarily
+            )
+        
+        # Token expires soon, generate new one
+        logger.info(f"Preemptive refresh for user {current_user.id}, token expires in {time_to_expiry:.0f}s")
+        
+        # Generate new access token
+        new_access_token = create_access_token(
+            data={"sub": str(current_user.id)},
+            expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
+        )
+        
+        # Log the preemptive refresh
+        log_oauth_action(
+            "preemptive_refresh", "maxlab", current_user.id, True,
+            None, None, request, db
+        )
+        
+        return TokenResponse(
+            access_token=new_access_token,
+            token_type="Bearer",
+            expires_in=settings.access_token_expire_minutes * 60,
+            scope=payload.get("scope", ""),
+            refresh_token=None  # Don't rotate refresh token on preemptive refresh
+        )
+        
+    except JWTError as e:
+        logger.error(f"JWT decode error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"Preemptive refresh error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.post("/token", response_model=TokenResponse)
 def token(
     grant_type: str = Form(...),
@@ -2247,8 +2320,64 @@ def handle_refresh_token_grant(
     
     logger.info(f"Refresh token validation successful for client_id: {client_id}, user_id: {token_info['user_id']}")
     
-    # Rotate refresh token (RFC 6749 security best practice)
+    # Get Redis coordinator for distributed locking
     try:
+        redis_store = get_session_store()
+        if redis_store and redis_store.redis_client:
+            coordinator = get_token_refresh_coordinator(redis_store.redis_client)
+            
+            # Use distributed lock to prevent race conditions
+            with coordinator.acquire_refresh_lock(token_info['user_id'], client_id) as lock_acquired:
+                if lock_acquired is None:
+                    # Using cached result from another concurrent refresh
+                    cached = coordinator._get_cached_refresh(token_info['user_id'], client_id)
+                    if cached:
+                        logger.info(f"📦 Using cached refresh result for user={token_info['user_id']}")
+                        return TokenResponse(
+                            access_token=cached['access_token'],
+                            token_type="Bearer",
+                            expires_in=cached['expires_in'],
+                            scope=token_info['scope'],
+                            refresh_token=cached['refresh_token'],
+                            refresh_expires_in=30 * 24 * 60 * 60
+                        )
+                
+                # Proceed with token rotation under lock protection
+                logger.info(f"🔒 Token rotation under distributed lock for client_id: {client_id}, user_id: {token_info['user_id']}")
+                new_access_token, new_refresh_token = rotate_refresh_token(
+                    token_info['token_hash'],
+                    token_info['user_id'],
+                    client_id,
+                    token_info['scope'],
+                    request,
+                    db
+                )
+                
+                # Cache the result for other concurrent requests
+                coordinator.cache_refresh_result(
+                    token_info['user_id'],
+                    client_id,
+                    new_access_token,
+                    new_refresh_token,
+                    settings.access_token_expire_minutes * 60
+                )
+        else:
+            # Fallback to original behavior if Redis is not available
+            logger.warning("⚠️ Redis not available, proceeding without distributed lock")
+            new_access_token, new_refresh_token = rotate_refresh_token(
+                token_info['token_hash'],
+                token_info['user_id'],
+                client_id,
+                token_info['scope'],
+                request,
+                db
+            )
+    except TimeoutError:
+        logger.error(f"⏱️ Token refresh lock timeout for user={token_info['user_id']}, client={client_id}")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable, please retry")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during token refresh: {e}")
+        # Fallback to original behavior
         logger.info(f"Starting token rotation for client_id: {client_id}, user_id: {token_info['user_id']}")
         new_access_token, new_refresh_token = rotate_refresh_token(
             token_info['token_hash'],
