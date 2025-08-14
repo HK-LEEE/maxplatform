@@ -213,6 +213,11 @@ class OAuthRedisSessionManager:
             return None
         
         try:
+            # Log all cookies for debugging token refresh issues
+            logger.debug(f"🍪 All cookies received: {list(request.cookies.keys())}")
+            logger.debug(f"🍪 Cookie header: {request.headers.get('Cookie', 'None')}")
+            logger.debug(f"🍪 Referer: {request.headers.get('Referer', 'None')}")
+            
             # Try to get session ID from cookies
             session_id = request.cookies.get('session_id') or request.cookies.get('session_token')
             
@@ -245,13 +250,27 @@ class OAuthRedisSessionManager:
         """
         try:
             # Set session cookies with proper security settings
+            # Determine cookie domain based on environment
+            cookie_domain = None
+            if not settings.debug:
+                # Production: use cross-subdomain cookie for SSO
+                cookie_domain = '.dwchem.co.kr'
+            # For development, don't set domain to allow localhost
+            
             cookie_settings = {
                 'httponly': True,
                 'secure': not settings.debug,  # Use secure cookies in production
-                'samesite': 'lax',
+                'samesite': 'lax',  # Allow cookies in navigation requests
                 'max_age': 3600,  # 1 hour
-                'domain': '.dwchem.co.kr'  # 🔧 Cross-subdomain cookie sharing for OAuth SSO
+                'path': '/'  # Ensure cookie is available for all paths
             }
+            
+            # Only add domain if specified
+            if cookie_domain:
+                cookie_settings['domain'] = cookie_domain
+                logger.debug(f"🍪 Setting cookies with domain: {cookie_domain}")
+            else:
+                logger.debug("🍪 Setting cookies without domain (localhost)")
             
             # Primary session identifier
             response.set_cookie('session_id', session_id, **cookie_settings)
@@ -261,7 +280,7 @@ class OAuthRedisSessionManager:
             if user_data.get('id'):
                 response.set_cookie('user_id', str(user_data['id']), **cookie_settings)
             
-            logger.debug(f"✅ Session cookies set for: {session_id}")
+            logger.debug(f"✅ Session cookies set for: {session_id} with settings: {cookie_settings}")
             
         except Exception as e:
             logger.error(f"❌ Error setting session cookies: {e}")

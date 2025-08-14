@@ -472,9 +472,23 @@ def get_current_user_with_redis_session(
         # 2단계: Redis 세션 검증 시도 (로그인 후 access_token 쿠키가 없는 경우)
         try:
             from ..core.oauth_redis_integration import get_oauth_session_from_request
+            from ..core.redis_session import get_user_session
             
             # Redis 세션에서 사용자 정보 추출
             session_data = get_oauth_session_from_request(request)
+            
+            # 2.5단계: login_hint 파라미터에서 세션 복구 시도 (SSO 토큰 리프레시용)
+            if not session_data:
+                login_hint = request.query_params.get('login_hint')
+                if login_hint:
+                    logger.info(f"🔑 Attempting session recovery from login_hint: {login_hint[:8]}...")
+                    try:
+                        # Redis에서 직접 세션 조회
+                        session_data = get_user_session(login_hint)
+                        if session_data:
+                            logger.info(f"✅ Session recovered from login_hint successfully")
+                    except Exception as e:
+                        logger.debug(f"Failed to recover session from login_hint: {e}")
             
             if session_data:
                 # 세션에서 사용자 ID 추출
