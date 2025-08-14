@@ -181,30 +181,23 @@ def store_refresh_token(
     else:
         user_uuid = user_id
     
-    # 기존 활성 토큰 무효화 (세션별 격리 지원)
-    if session_id:
-        # 세션별 격리: 동일 세션의 기존 토큰만 무효화
-        logger.debug(f"🗑️ Invalidating existing tokens for session: {session_id}")
-        db.query(RefreshToken).filter(
-            RefreshToken.user_id == user_uuid,
-            RefreshToken.session_id == session_id,
-            RefreshToken.is_active == True
-        ).update({"is_active": False})
-    else:
-        # 레거시 모드: 모든 활성 토큰 무효화
-        logger.debug(f"🌐 Invalidating all existing tokens for user (legacy mode)")
-        db.query(RefreshToken).filter(
-            RefreshToken.user_id == user_uuid,
-            RefreshToken.is_active == True
-        ).update({"is_active": False})
+    # 기존 활성 토큰 무효화 (세션 격리 임시 비활성화)
+    # FIXME: 세션 격리 비활성화 - 항상 모든 기존 토큰 무효화
+    # 이렇게 하면 가장 최근에 로그인한 세션만 유효하게 됨
+    logger.debug(f"🚫 Invalidating ALL existing tokens for user (last login wins)")
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_uuid,
+        RefreshToken.is_active == True
+    ).update({"is_active": False})
     
-    # 새 토큰 저장 (세션 ID 포함)
-    logger.debug(f"💾 Storing new refresh token - session_id: {session_id}")
+    # 새 토큰 저장 (세션 격리 임시 비활성화)
+    # FIXME: 세션 격리를 일시적으로 비활성화. 향후 재활성화 필요
+    logger.debug(f"💾 Storing new refresh token WITHOUT session isolation (was: {session_id})")
     token_record = RefreshToken(
         token=refresh_token,
         user_id=user_uuid,
         expires_at=expires_at,
-        session_id=session_id,
+        session_id=None,  # 세션 격리 임시 비활성화
         device_info=request.headers.get("user-agent", "") if request else "",
         ip_address=request.client.host if request else "",
         user_agent=request.headers.get("user-agent", "") if request else ""
@@ -241,27 +234,20 @@ def verify_refresh_token(db: Session, refresh_token: str, session_id: str = None
             logger.warning(f"Invalid UUID format for user_id: {user_id}")
             return None
         
-        # 데이터베이스에서 토큰 조회 (세션별 격리 지원)
+        # 데이터베이스에서 토큰 조회 (세션 격리 임시 비활성화)
+        # FIXME: 세션 격리를 일시적으로 비활성화하고, 가장 최근 토큰만 유효하게 처리
+        # 향후 모든 토큰이 session_id를 가지게 되면 다시 활성화 필요
+        logger.debug(f"🔓 Session isolation temporarily disabled - session_id: {session_id}")
+        logger.debug(f"🔍 Looking for ANY matching refresh token for user: {user_uuid}")
+        
+        # 세션 ID 무시하고 토큰과 사용자 ID만으로 조회
         query = db.query(RefreshToken).filter(
             RefreshToken.token == refresh_token,
             RefreshToken.user_id == user_uuid
         )
         
-        # 세션 ID가 제공된 경우 세션별 격리 적용
-        if session_id:
-            logger.debug(f"🏷️ Applying session-scoped token lookup - session_id: {session_id}")
-            query = query.filter(RefreshToken.session_id == session_id)
-        else:
-            logger.debug("🌐 Using legacy token lookup (no session isolation)")
-            # 레거시 호환성: session_id가 None이거나 "<legacy>" 문자열인 토큰 조회
-            query = query.filter(
-                or_(
-                    RefreshToken.session_id.is_(None),
-                    RefreshToken.session_id == "<legacy>"
-                )
-            )
-        
-        token_record = query.first()
+        # 가장 최근에 생성된 토큰 우선 (동일 토큰이 여러 개 있을 경우)
+        token_record = query.order_by(RefreshToken.created_at.desc()).first()
         
         if not token_record:
             # 디버깅을 위해 전체 토큰 상황 조회
@@ -353,11 +339,11 @@ async def get_available_groups(db: Session = Depends(get_db)):
 
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
-    """사용자 회원가입 (세션별 격리 지원)"""
-    # Extract session ID for session-scoped token management
-    # RE-ENABLED: session isolation for multi-browser support
+    """사용자 회원가입 (세션 격리 임시 비활성화)"""
+    # Extract session ID but don't use it (temporarily disabled)
+    # FIXME: Session isolation is temporarily disabled
     session_id = request.cookies.get('session_id') if request else None
-    logger.info(f"📝 User registration - session_id: {session_id}")
+    logger.info(f"📝 User registration - session_id: {session_id} (NOT USED - isolation disabled)")
     # 이메일 중복 확인
     if get_user_by_email(db, user_data.email):
         raise HTTPException(
@@ -665,11 +651,11 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
 async def refresh_token(token_data: TokenRefresh, request: Request, db: Session = Depends(get_db)):
-    """Refresh Token으로 새로운 Access Token 발급 (세션별 격리 지원)"""
-    # Extract session ID for session-scoped token management
-    # RE-ENABLED: session isolation for multi-browser support
+    """Refresh Token으로 새로운 Access Token 발급 (세션 격리 임시 비활성화)"""
+    # Extract session ID but don't use it for token lookup (temporarily disabled)
+    # FIXME: Session isolation is temporarily disabled
     session_id = request.cookies.get('session_id') if request else None
-    logger.info(f"🔄 Refresh token request received - session_id: {session_id}")
+    logger.info(f"🔄 Refresh token request received - session_id: {session_id} (NOT USED - isolation disabled)")
     logger.info(f"🔍 Request details - endpoint: {request.url.path}, method: {request.method}")
     
     # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
