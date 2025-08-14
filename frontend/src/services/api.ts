@@ -347,6 +347,98 @@ export const fileAPI = {
   },
 }
 
+// 테스트 유틸리티 함수들 - 차등적 재시도 정책 디버깅용
+export const testUtils = {
+  // 토큰 리프레시 실패 시뮬레이션
+  simulateRefreshFailure: (errorType: 'network' | 'token' | 'server' | 'permission') => {
+    const errors = {
+      network: new Error('Network Error: fetch failed'),
+      token: new Error('401 unauthorized - invalid_token'),
+      server: new Error('500 internal server error'),
+      permission: new Error('403 forbidden - access_denied')
+    };
+    
+    const error = errors[errorType];
+    const errorMessage = error.message;
+    
+    // 에러 타입별 예상 재시도 정책 표시
+    const maxRetries = getMaxRetries('TEST_ERROR', errorMessage);
+    console.log(`🧪 MAX Platform Test: Simulating ${errorType} error`);
+    console.log(`🧪 Error message: ${errorMessage}`);
+    console.log(`🧪 Expected max retries: ${maxRetries}`);
+    
+    // localStorage에 테스트 에러 정보 저장
+    localStorage.setItem('last_refresh_error_test', errorMessage);
+    
+    return { error, maxRetries, errorMessage };
+  },
+
+  // 현재 상태 확인
+  showCurrentState: () => {
+    const token = localStorage.getItem('token');
+    const refreshToken = localStorage.getItem('refreshToken');
+    const lastError = localStorage.getItem('last_refresh_error_test');
+    
+    console.log('🔍 MAX Platform Current State:');
+    console.log('- Access Token:', token ? 'Present' : 'Missing');
+    console.log('- Refresh Token:', refreshToken ? 'Present' : 'Missing');
+    console.log('- Consecutive Failures:', consecutiveFailures);
+    console.log('- Last Error:', lastError || 'None');
+    console.log('- Is Refreshing:', isRefreshing);
+    
+    return {
+      hasToken: !!token,
+      hasRefreshToken: !!refreshToken,
+      consecutiveFailures,
+      lastError,
+      isRefreshing
+    };
+  },
+
+  // 토큰 만료 강제 실행 (실제 401 에러 발생시키기)
+  triggerActualRefresh: async () => {
+    console.log('🔄 MAX Platform: Triggering actual refresh by making API call with expired token');
+    
+    // 현재 토큰을 잘못된 값으로 변경하여 401 에러 유발
+    const originalToken = localStorage.getItem('token');
+    localStorage.setItem('token', 'invalid_token_for_testing');
+    
+    try {
+      // 실제 API 호출을 통해 401 에러 발생
+      await api.get('/auth/me');
+    } catch (error) {
+      console.log('🧪 Expected 401 error triggered:', error.message);
+    } finally {
+      // 원래 토큰 복원 (있었다면)
+      if (originalToken) {
+        localStorage.setItem('token', originalToken);
+      }
+    }
+  },
+
+  // 현재 차등적 재시도 정책 테스트
+  testRetryPolicy: () => {
+    console.log('🧪 MAX Platform Retry Policy Test:');
+    
+    const testCases = [
+      { type: 'NETWORK_ERROR', message: 'Network Error: fetch failed' },
+      { type: 'TOKEN_ERROR', message: '401 unauthorized - invalid_token' },
+      { type: 'SERVER_ERROR', message: '500 internal server error' },
+      { type: 'PERMISSION_ERROR', message: '403 forbidden - access_denied' }
+    ];
+    
+    testCases.forEach(testCase => {
+      const maxRetries = getMaxRetries(testCase.type, testCase.message);
+      console.log(`- ${testCase.type}: ${maxRetries} retries`);
+    });
+  }
+};
+
+// 전역에서 접근 가능하도록 설정
+if (typeof window !== 'undefined') {
+  window.maxPlatformTestUtils = testUtils;
+}
+
 export default api
 
 // Flow Studio API
