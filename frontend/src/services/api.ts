@@ -103,11 +103,10 @@ api.interceptors.response.use(
       
       if (refreshToken) {
         try {
-          console.log('🔄 MAX Platform: Attempting token refresh...');
           const response = await api.post('/auth/refresh', {
             refresh_token: refreshToken
           })
-          console.log("✅ MAX Platform: refresh token successful")
+          console.log("refresh token get")
           console.log(response)
           
           const { access_token } = response.data
@@ -128,25 +127,7 @@ api.interceptors.response.use(
           return api(originalRequest)
           
         } catch (refreshError) {
-          // axios 에러 객체에서 상세 정보 추출
-          let errorMessage = 'Unknown refresh error';
-          if (refreshError?.response) {
-            // HTTP 응답이 있는 경우 (4xx, 5xx 에러)
-            const status = refreshError.response.status;
-            const statusText = refreshError.response.statusText;
-            const responseData = refreshError.response.data;
-            errorMessage = `${status} ${statusText}`;
-            if (responseData?.detail) {
-              errorMessage += ` - ${responseData.detail}`;
-            }
-          } else if (refreshError?.request) {
-            // 요청은 보냈지만 응답을 받지 못한 경우 (네트워크 에러)
-            errorMessage = 'Network Error: No response received';
-          } else {
-            // 요청 설정 중 에러 발생
-            errorMessage = refreshError?.message || String(refreshError);
-          }
-          
+          const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
           lastError = errorMessage;
           consecutiveFailures++;
           
@@ -155,7 +136,6 @@ api.interceptors.response.use(
           
           console.log(`❌ MAX Platform refresh token failed (attempt ${consecutiveFailures}/${maxRetries}):`, errorMessage);
           console.log(`📊 Error analysis: ${maxRetries} retries allowed for this error type`);
-          console.log(`🔍 Refresh error details:`, refreshError);
           
           // 동적 실패 임계값에 도달 시에만 로그아웃
           if (consecutiveFailures >= maxRetries) {
