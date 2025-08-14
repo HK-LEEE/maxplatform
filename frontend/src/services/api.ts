@@ -78,11 +78,31 @@ api.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${access_token}`
           return api(originalRequest)
           
-        } catch (refreshError) {
-          // 리프레시 토큰도 만료된 경우
+        } catch (refreshError: any) {
+          // 리프레시 토큰도 만료된 경우 - 상세 로깅 추가
+          console.error('🔴 [MAX Platform] Refresh token failed:', {
+            error: refreshError?.response?.data || refreshError?.message || refreshError,
+            status: refreshError?.response?.status,
+            timestamp: new Date().toISOString(),
+            currentUrl: window.location.href,
+            hasRefreshToken: !!refreshToken,
+            sessionInfo: {
+              userId: localStorage.getItem('userId'),
+              authMethod: localStorage.getItem('authMethod'),
+              lastActivity: localStorage.getItem('lastActivity')
+            }
+          })
+          
           processQueue(refreshError, null)
+          
+          // 토큰 정리
           localStorage.removeItem('token')
           localStorage.removeItem('refreshToken')
+          localStorage.removeItem('userId')
+          localStorage.removeItem('authMethod')
+          
+          // 세션 스토리지 정리
+          sessionStorage.clear()
           
           // 현재 페이지 정보를 저장하여 로그인 후 돌아올 수 있도록 함
           const currentPath = window.location.pathname
@@ -90,26 +110,57 @@ api.interceptors.response.use(
           
           if (!authPaths.includes(currentPath)) {
             localStorage.setItem('redirectAfterLogin', currentPath)
-            console.warn('Session expired. Redirecting to login...')
-            window.location.href = '/login'
           }
+          
+          console.warn('🔓 [MAX Platform] Session expired. Redirecting to login page...')
+          
+          // 도메인에 관계없이 max.dwchem.co.kr 로그인 페이지로 리다이렉트
+          const loginUrl = window.location.hostname.includes('dwchem.co.kr') 
+            ? 'https://max.dwchem.co.kr/login' 
+            : '/login'
+          
+          window.location.href = loginUrl
           
           return Promise.reject(refreshError)
         } finally {
           isRefreshing = false
         }
       } else {
-        // 리프레시 토큰이 없는 경우
+        // 리프레시 토큰이 없는 경우 - 상세 로깅 추가
+        console.error('🔴 [MAX Platform] No refresh token available:', {
+          timestamp: new Date().toISOString(),
+          currentUrl: window.location.href,
+          sessionInfo: {
+            hasToken: !!localStorage.getItem('token'),
+            userId: localStorage.getItem('userId'),
+            authMethod: localStorage.getItem('authMethod'),
+            lastActivity: localStorage.getItem('lastActivity')
+          }
+        })
+        
+        // 토큰 정리
         localStorage.removeItem('token')
+        localStorage.removeItem('userId')
+        localStorage.removeItem('authMethod')
+        
+        // 세션 스토리지 정리
+        sessionStorage.clear()
         
         const currentPath = window.location.pathname
         const authPaths = ['/login', '/register', '/reset-password', '/']
         
         if (!authPaths.includes(currentPath)) {
           localStorage.setItem('redirectAfterLogin', currentPath)
-          console.warn('No valid session found. Redirecting to login...')
-          window.location.href = '/login'
         }
+        
+        console.warn('🔓 [MAX Platform] No valid session found. Redirecting to login...')
+        
+        // 도메인에 관계없이 max.dwchem.co.kr 로그인 페이지로 리다이렉트
+        const loginUrl = window.location.hostname.includes('dwchem.co.kr') 
+          ? 'https://max.dwchem.co.kr/login' 
+          : '/login'
+        
+        window.location.href = loginUrl
       }
     }
     
