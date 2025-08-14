@@ -2798,6 +2798,74 @@ def handle_client_credentials_grant(
         raise HTTPException(status_code=500, detail="Service token creation failed")
 
 
+@router.post("/introspect")
+async def introspect_token(
+    token: str = Form(...),
+    token_type_hint: Optional[str] = Form(None),
+    client_id: Optional[str] = Form(None),
+    client_secret: Optional[str] = Form(None),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    OAuth 2.0 Token Introspection Endpoint (RFC 7662)
+    Returns information about an access token
+    """
+    try:
+        # Basic validation
+        if not token:
+            return JSONResponse(content={"active": False})
+        
+        # Try to decode the token
+        try:
+            payload = jwt.decode(
+                token, 
+                settings.secret_key, 
+                algorithms=[settings.algorithm]
+            )
+            
+            # Check expiration
+            exp = payload.get('exp')
+            if exp and exp < time.time():
+                return JSONResponse(content={"active": False})
+            
+            # Get user info if available
+            user_id = payload.get('sub')
+            user = None
+            if user_id:
+                user = db.query(User).filter(User.id == user_id).first()
+            
+            # Build introspection response
+            response_data = {
+                "active": True,
+                "scope": payload.get('scope', 'openid profile email'),
+                "client_id": payload.get('client_id', client_id),
+                "username": user.email if user else None,
+                "token_type": "Bearer",
+                "exp": exp,
+                "iat": payload.get('iat'),
+                "nbf": payload.get('nbf'),
+                "sub": user_id,
+                "aud": payload.get('aud', []),
+                "iss": payload.get('iss', 'maxplatform'),
+                "jti": payload.get('jti')
+            }
+            
+            # Remove None values
+            response_data = {k: v for k, v in response_data.items() if v is not None}
+            
+            logger.info(f"Token introspection successful for client: {client_id}")
+            return JSONResponse(content=response_data)
+            
+        except jwt.JWTError as e:
+            logger.debug(f"Token introspection failed: {e}")
+            return JSONResponse(content={"active": False})
+            
+    except Exception as e:
+        logger.error(f"Token introspection error: {e}")
+        return JSONResponse(content={"active": False})
+
+
 @router.get("/userinfo")
 def userinfo(
     request: Request,
