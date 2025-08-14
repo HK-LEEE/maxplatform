@@ -23,6 +23,47 @@ let failedQueue: Array<{
   resolve: (value?: any) => void
   reject: (reason?: any) => void
 }> = []
+let consecutiveFailures = 0
+let lastError: string | null = null
+
+// 차등적 재시도 정책: 오류 유형에 따른 maxRetries 결정
+const getMaxRetries = (errorType: string, errorMessage?: string): number => {
+  let maxRetries = 3; // 기본값
+  let reason = 'default policy';
+  
+  if (errorType === 'NETWORK_ERROR' || 
+      errorMessage?.includes('Network Error') ||
+      errorMessage?.includes('ERR_NETWORK') ||
+      errorMessage?.includes('timeout') ||
+      errorMessage?.includes('connection') ||
+      errorMessage?.includes('fetch')) {
+    maxRetries = 5; // 네트워크 오류는 더 관대하게
+    reason = 'network error - more tolerant retry policy';
+  } else if (errorType === 'INVALID_REFRESH_TOKEN' ||
+             errorMessage?.includes('refresh_token_invalid') ||
+             errorMessage?.includes('refresh_token_expired') ||
+             errorMessage?.includes('invalid_token') ||
+             errorMessage?.includes('401') ||
+             errorMessage?.includes('unauthorized')) {
+    maxRetries = 1; // 토큰 오류는 즉시 처리
+    reason = 'token error - immediate failure policy';
+  } else if (errorMessage?.includes('403') || 
+             errorMessage?.includes('forbidden') ||
+             errorMessage?.includes('access_denied')) {
+    maxRetries = 1; // 권한 오류는 즉시 처리
+    reason = 'permission error - immediate failure policy';
+  } else if (errorMessage?.includes('500') || 
+             errorMessage?.includes('502') || 
+             errorMessage?.includes('503') ||
+             errorMessage?.includes('server') ||
+             errorMessage?.includes('internal')) {
+    maxRetries = 4; // 서버 오류는 중간 정도
+    reason = 'server error - moderate retry policy';
+  }
+  
+  console.log(`📋 MAX Platform API: Max retries set to ${maxRetries} (${reason}) for error: ${errorMessage || errorType}`);
+  return maxRetries;
+};
 
 const processQueue = (error: any, token: string | null = null) => {
   failedQueue.forEach(({ resolve, reject }) => {
@@ -71,6 +112,13 @@ api.interceptors.response.use(
           const { access_token } = response.data
           localStorage.setItem('token', access_token)
           
+          // 성공 시 실패 카운터 리셋
+          if (consecutiveFailures > 0) {
+            console.log(`✅ MAX Platform refresh token successful, resetting failure counter (was ${consecutiveFailures})`);
+            consecutiveFailures = 0;
+            lastError = null;
+          }
+          
           // 대기 중인 요청들 처리
           processQueue(null, access_token)
           
@@ -79,19 +127,43 @@ api.interceptors.response.use(
           return api(originalRequest)
           
         } catch (refreshError) {
-          // 리프레시 토큰도 만료된 경우
-          processQueue(refreshError, null)
-          localStorage.removeItem('token')
-          localStorage.removeItem('refreshToken')
+          const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
+          lastError = errorMessage;
+          consecutiveFailures++;
           
-          // 현재 페이지 정보를 저장하여 로그인 후 돌아올 수 있도록 함
-          const currentPath = window.location.pathname
-          const authPaths = ['/login', '/register', '/reset-password', '/']
+          // 차등적 재시도 정책 적용
+          const maxRetries = getMaxRetries('REFRESH_TOKEN_ERROR', errorMessage);
           
-          if (!authPaths.includes(currentPath)) {
-            localStorage.setItem('redirectAfterLogin', currentPath)
-            console.warn('Session expired. Redirecting to login...')
-            window.location.href = '/login'
+          console.log(`❌ MAX Platform refresh token failed (attempt ${consecutiveFailures}/${maxRetries}):`, errorMessage);
+          console.log(`📊 Error analysis: ${maxRetries} retries allowed for this error type`);
+          
+          // 동적 실패 임계값에 도달 시에만 로그아웃
+          if (consecutiveFailures >= maxRetries) {
+            console.log(`❌ Reached maximum retries (${maxRetries}) for refresh token error, logging out user`);
+            console.log(`📊 Failure pattern: ${maxRetries} consecutive failures with error: ${errorMessage}`);
+            
+            // 리프레시 토큰도 만료된 경우
+            processQueue(refreshError, null)
+            localStorage.removeItem('token')
+            localStorage.removeItem('refreshToken')
+            
+            // 현재 페이지 정보를 저장하여 로그인 후 돌아올 수 있도록 함
+            const currentPath = window.location.pathname
+            const authPaths = ['/login', '/register', '/reset-password', '/']
+            
+            if (!authPaths.includes(currentPath)) {
+              localStorage.setItem('redirectAfterLogin', currentPath)
+              console.warn('Session expired. Redirecting to login...')
+              window.location.href = '/login'
+            }
+            
+            // 실패 카운터 리셋
+            consecutiveFailures = 0;
+            lastError = null;
+          } else {
+            // 아직 재시도 가능한 경우 실패를 전파하지만 로그아웃하지 않음
+            console.log(`⚠️ Refresh token failed but still have ${maxRetries - consecutiveFailures} retries left`);
+            processQueue(refreshError, null);
           }
           
           return Promise.reject(refreshError)
