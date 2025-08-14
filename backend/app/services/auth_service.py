@@ -6,7 +6,7 @@ JWT 토큰 발급/갱신 시 Redis 세션도 함께 생성/갱신하여 세션 �
 import json
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
@@ -261,8 +261,8 @@ class AuthService:
                 user_id=user_id,
                 token=token,
                 is_active=True,
-                created_at=datetime.utcnow(),
-                expires_at=datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+                created_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
             )
             db.add(refresh_token)
             db.commit()

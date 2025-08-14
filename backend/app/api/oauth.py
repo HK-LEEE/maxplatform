@@ -3,7 +3,7 @@ OAuth 2.0 API Router for MAX Platform
 Implements Authorization Code Flow with PKCE support
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import hashlib
 import base64
@@ -262,7 +262,7 @@ def create_authorization_code_record(
 ) -> str:
     """Create authorization code record in database"""
     code = generate_authorization_code()
-    expires_at = datetime.utcnow() + timedelta(minutes=5)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
     
     db.execute(
         text("""
@@ -523,7 +523,7 @@ def token(
             raise HTTPException(status_code=400, detail="Invalid authorization code")
         
         # Check if code is expired
-        if auth_code.expires_at < datetime.utcnow():
+        if auth_code.expires_at < datetime.now(timezone.utc):
             log_oauth_action(
                 "token", client_id, auth_code.user_id, False,
                 "invalid_grant", "Authorization code expired",
@@ -584,7 +584,7 @@ def token(
         
         # Store token hash for revocation
         token_hash = generate_token_hash(access_token)
-        expires_at = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         
         await db.execute(
             text("""

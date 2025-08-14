@@ -6,7 +6,7 @@ from typing import List, Optional, Union
 from passlib.context import CryptContext
 from passlib.hash import bcrypt
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import re
 import os
@@ -32,6 +32,18 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def set_session_cookie(response: Response, session_id: str):
+    """Set secure session cookie for multi-browser session isolation"""
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,      # XSS protection
+        secure=True,        # HTTPS only (set to False for development)
+        samesite="Strict",  # CSRF protection
+        max_age=3600,       # 1 hour
+        path="/"            # Available for all paths
+    )
 
 # 비밀번호 해싱 - bcrypt 호환성 개선
 try:
@@ -337,8 +349,8 @@ async def get_available_groups(db: Session = Depends(get_db)):
 async def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
     """사용자 회원가입 (세션별 격리 지원)"""
     # Extract session ID for session-scoped token management
-    # TEMPORARILY DISABLED: session isolation to restore service
-    session_id = None  # request.cookies.get('session_id') if request else None
+    # RE-ENABLED: session isolation for multi-browser support
+    session_id = request.cookies.get('session_id') if request else None
     logger.info(f"📝 User registration - session_id: {session_id}")
     # 이메일 중복 확인
     if get_user_by_email(db, user_data.email):
@@ -649,14 +661,14 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
 async def refresh_token(token_data: TokenRefresh, request: Request, db: Session = Depends(get_db)):
     """Refresh Token으로 새로운 Access Token 발급 (세션별 격리 지원)"""
     # Extract session ID for session-scoped token management
-    # TEMPORARILY DISABLED: session isolation to restore service
-    session_id = None  # request.cookies.get('session_id') if request else None
+    # RE-ENABLED: session isolation for multi-browser support
+    session_id = request.cookies.get('session_id') if request else None
     logger.info(f"🔄 Refresh token request received - session_id: {session_id}")
     logger.info(f"🔍 Request details - endpoint: {request.url.path}, method: {request.method}")
     
     # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
     try:
-        import jwt
+        # Use python-jose jwt for consistency
         payload = jwt.decode(token_data.refresh_token, options={"verify_signature": False})
         request_user_id = payload.get("sub")
         logger.debug(f"📄 Token payload analysis - user_id: {request_user_id}")

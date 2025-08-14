@@ -3,7 +3,7 @@ OAuth 2.0 API Router for MAX Platform (Simplified)
 Implements Authorization Code Flow with basic functionality
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import hashlib
 import base64
@@ -100,7 +100,7 @@ def generate_refresh_token() -> str:
 def calculate_refresh_token_expiry() -> datetime:
     """Calculate refresh token expiration time"""
     # Default to 30 days for refresh tokens
-    return datetime.utcnow() + timedelta(days=30)
+    return datetime.now(timezone.utc) + timedelta(days=30)
 
 
 def cleanup_expired_tokens(db: Session) -> int:
@@ -296,7 +296,7 @@ def validate_refresh_token(
                     "expected_client_id": client_id
                 }
                 
-                if status == 'rotating' and grace_expires_at and grace_expires_at < datetime.utcnow():
+                if status == 'rotating' and grace_expires_at and grace_expires_at < datetime.now(timezone.utc):
                     error_msg += " - Token was in rotating status but grace period expired"
                 elif status == 'revoked':
                     error_msg += " - Token has been revoked"
@@ -400,7 +400,7 @@ def rotate_refresh_token(
         
         # Calculate expiry times
         expires_at = calculate_refresh_token_expiry()
-        grace_expires_at = datetime.utcnow() + timedelta(seconds=10)  # 10-second grace period
+        grace_expires_at = datetime.now(timezone.utc) + timedelta(seconds=10)  # 10-second grace period
         client_ip = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "")
         
@@ -443,7 +443,7 @@ def rotate_refresh_token(
         )
         
         # Step 3: Store new access token
-        access_token_expires = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+        access_token_expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
         db.execute(
             text("""
                 INSERT INTO oauth_access_tokens 
@@ -610,7 +610,7 @@ def create_authorization_code_record(
     """Create authorization code record in database"""
     try:
         code = generate_authorization_code()
-        expires_at = datetime.utcnow() + timedelta(minutes=5)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         
         db.execute(
             text("""
@@ -630,7 +630,7 @@ def create_authorization_code_record(
                 "code_challenge_method": code_challenge_method,
                 "expires_at": expires_at,
                 "nonce": nonce,
-                "auth_time": auth_time or datetime.utcnow()
+                "auth_time": auth_time or datetime.now(timezone.utc)
             }
         )
         db.commit()

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -37,7 +37,7 @@ def generate_token_hash(token: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """JWT 액세스 토큰 생성 (고유성 보장)"""
     to_encode = data.copy()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     if expires_delta:
         expire = now + expires_delta
@@ -74,8 +74,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """JWT 리프레시 토큰 생성"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
-    to_encode.update({"exp": expire, "type": "refresh", "iat": datetime.utcnow()})
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    to_encode.update({"exp": expire, "type": "refresh", "iat": datetime.now(timezone.utc)})
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
@@ -124,7 +124,7 @@ def extract_user_info_from_token(token: str) -> Optional[Dict[str, Any]]:
         
         # 토큰 만료 확인
         exp = payload.get("exp")
-        if exp and datetime.utcnow().timestamp() > exp:
+        if exp and datetime.now(timezone.utc).timestamp() > exp:
             return None
             
         user_info = {
@@ -210,7 +210,7 @@ def get_current_user(
         # 토큰 만료 확인 (JWT 라이브러리에서 자동으로 체크하지만 명시적으로 확인)
         exp = payload.get("exp")
         if exp:
-            current_timestamp = datetime.utcnow().timestamp()
+            current_timestamp = datetime.now(timezone.utc).timestamp()
             if current_timestamp > exp:
                 logger.debug("Token has expired")
                 raise credentials_exception
@@ -583,7 +583,7 @@ def verify_service_token(token: str, required_scopes: Optional[list] = None) -> 
         
         # 토큰 만료 확인
         exp = payload.get("exp")
-        if exp and datetime.utcnow().timestamp() > exp:
+        if exp and datetime.now(timezone.utc).timestamp() > exp:
             logger.debug("Service token has expired")
             return None
         

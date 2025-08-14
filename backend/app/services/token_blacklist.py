@@ -10,7 +10,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 import redis
-import jwt
+from jose import jwt
 
 logger = logging.getLogger(__name__)
 
