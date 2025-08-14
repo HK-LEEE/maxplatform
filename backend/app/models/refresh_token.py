@@ -23,6 +23,9 @@ class RefreshToken(Base):
     # 사용자 연결 - PostgreSQL 네이티브 UUID 타입 사용
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False, comment="토큰 소유 사용자 ID")
     
+    # 세션별 격리 지원
+    session_id = Column(String(255), nullable=True, comment="세션 ID (세션별 토큰 격리용)")
+    
     # 토큰 메타데이터
     device_info = Column(String(255), nullable=True, comment="기기 정보")
     ip_address = Column(String(45), nullable=True, comment="발급 시 IP 주소")

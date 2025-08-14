@@ -655,8 +655,8 @@ async def refresh_token(token_data: TokenRefresh, request: Request, db: Session 
     
     # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
     try:
-        from jwt import decode
-        payload = decode(token_data.refresh_token, options={"verify_signature": False})
+        import jwt
+        payload = jwt.decode(token_data.refresh_token, options={"verify_signature": False})
         request_user_id = payload.get("sub")
         logger.debug(f"📄 Token payload analysis - user_id: {request_user_id}")
         
