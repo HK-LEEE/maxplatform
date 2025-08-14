@@ -155,9 +155,10 @@ def store_refresh_token(
     user_id, 
     refresh_token: str, 
     expires_at: datetime, 
-    request: Request = None
+    request: Request = None,
+    session_id: str = None
 ):
-    """Refresh Token을 데이터베이스에 저장"""
+    """Refresh Token을 데이터베이스에 저장 (세션별 격리 지원)"""
     # user_id가 UUID 객체인 경우 그대로 사용, 문자열인 경우 변환
     if isinstance(user_id, str):
         try:
@@ -167,17 +168,30 @@ def store_refresh_token(
     else:
         user_uuid = user_id
     
-    # 기존 활성 토큰 무효화 (선택적)
-    db.query(RefreshToken).filter(
-        RefreshToken.user_id == user_uuid,
-        RefreshToken.is_active == True
-    ).update({"is_active": False})
+    # 기존 활성 토큰 무효화 (세션별 격리 지원)
+    if session_id:
+        # 세션별 격리: 동일 세션의 기존 토큰만 무효화
+        logger.debug(f"🗑️ Invalidating existing tokens for session: {session_id}")
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == user_uuid,
+            RefreshToken.session_id == session_id,
+            RefreshToken.is_active == True
+        ).update({"is_active": False})
+    else:
+        # 레거시 모드: 모든 활성 토큰 무효화
+        logger.debug(f"🌐 Invalidating all existing tokens for user (legacy mode)")
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == user_uuid,
+            RefreshToken.is_active == True
+        ).update({"is_active": False})
     
-    # 새 토큰 저장
+    # 새 토큰 저장 (세션 ID 포함)
+    logger.debug(f"💾 Storing new refresh token - session_id: {session_id}")
     token_record = RefreshToken(
         token=refresh_token,
         user_id=user_uuid,
         expires_at=expires_at,
+        session_id=session_id,
         device_info=request.headers.get("user-agent", "") if request else "",
         ip_address=request.client.host if request else "",
         user_agent=request.headers.get("user-agent", "") if request else ""
@@ -187,10 +201,11 @@ def store_refresh_token(
     db.commit()
     return token_record
 
-def verify_refresh_token(db: Session, refresh_token: str) -> Optional[RefreshToken]:
-    """Refresh Token 검증"""
+def verify_refresh_token(db: Session, refresh_token: str, session_id: str = None) -> Optional[RefreshToken]:
+    """Refresh Token 검증 (세션별 격리 지원)"""
     try:
-        logger.debug("Attempting to verify refresh token")
+        logger.debug(f"🔍 Attempting to verify refresh token - session_id: {session_id}")
+        logger.debug(f"🎟️ Token prefix: {refresh_token[:10] if refresh_token else 'None'}...")
         
         # JWT 디코딩
         payload = jwt.decode(refresh_token, settings.secret_key, algorithms=[settings.algorithm])
@@ -213,21 +228,46 @@ def verify_refresh_token(db: Session, refresh_token: str) -> Optional[RefreshTok
             logger.warning(f"Invalid UUID format for user_id: {user_id}")
             return None
         
-        # 데이터베이스에서 토큰 조회
-        token_record = db.query(RefreshToken).filter(
+        # 데이터베이스에서 토큰 조회 (세션별 격리 지원)
+        query = db.query(RefreshToken).filter(
             RefreshToken.token == refresh_token,
             RefreshToken.user_id == user_uuid
-        ).first()
+        )
+        
+        # 세션 ID가 제공된 경우 세션별 격리 적용
+        if session_id:
+            logger.debug(f"🏷️ Applying session-scoped token lookup - session_id: {session_id}")
+            query = query.filter(RefreshToken.session_id == session_id)
+        else:
+            logger.debug("🌐 Using legacy token lookup (no session isolation)")
+            # 레거시 호환성: session_id가 None인 토큰만 조회
+            query = query.filter(RefreshToken.session_id.is_(None))
+        
+        token_record = query.first()
         
         if not token_record:
-            logger.warning(f"Refresh token not found in database for user: {user_id}")
-            return None
+            # 디버깅을 위해 전체 토큰 상황 조회
+            all_tokens = db.query(RefreshToken).filter(
+                RefreshToken.user_id == user_uuid,
+                RefreshToken.revoked == False
+            ).all()
             
-        if not token_record.is_valid():
-            logger.warning(f"Refresh token is not valid (expired/revoked) for user: {user_id}")
+            logger.warning(f"🔍 Token lookup failed - Total active tokens for user: {len(all_tokens)}")
+            for idx, token in enumerate(all_tokens):
+                token_session = token.session_id or "<legacy>"
+                logger.debug(f"  Token {idx+1}: session_id={token_session}, prefix={token.token[:10]}..., created={token.created_at}")
+            
+            logger.warning(f"❌ Refresh token not found in database for user: {user_id}, session: {session_id}")
             return None
         
-        logger.debug(f"Refresh token verified successfully for user: {user_id}")
+            
+        if not token_record.is_valid():
+            logger.warning(f"⚠️ Refresh token is not valid (expired/revoked) for user: {user_id}")
+            logger.debug(f"   Token details: expired={token_record.expires_at < datetime.now(timezone.utc)}, revoked={token_record.revoked}")
+            return None
+        
+        logger.debug(f"✅ Refresh token verified successfully for user: {user_id}, session: {session_id}")
+        logger.debug(f"   ✅ Token details: created={token_record.created_at}, expires={token_record.expires_at}, last_used={token_record.last_used_at}")
         return token_record
         
     except jwt.ExpiredSignatureError:
@@ -295,6 +335,10 @@ async def get_available_groups(db: Session = Depends(get_db)):
 
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
+    """사용자 회원가입 (세션별 격리 지원)"""
+    # Extract session ID for session-scoped token management
+    session_id = request.cookies.get('session_id') if request else None
+    logger.info(f"📝 User registration - session_id: {session_id}")
     # 이메일 중복 확인
     if get_user_by_email(db, user_data.email):
         raise HTTPException(
@@ -376,7 +420,7 @@ async def register(user_data: UserCreate, request: Request, db: Session = Depend
     
     # Refresh Token 저장
     refresh_expires_at = datetime.utcnow() + refresh_token_expires
-    store_refresh_token(db, db_user.id, refresh_token, refresh_expires_at, request)
+    store_refresh_token(db, db_user.id, refresh_token, refresh_expires_at, request, session_id)
     
     return {
         "access_token": access_token,
@@ -602,9 +646,36 @@ async def login(user_data: UserLogin, request: Request, response: Response, db: 
         )
 
 @router.post("/refresh", response_model=AccessTokenResponse)
-async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db)):
-    """Refresh Token으로 새로운 Access Token 발급"""
-    logger.info("Refresh token request received")
+async def refresh_token(token_data: TokenRefresh, request: Request, db: Session = Depends(get_db)):
+    """Refresh Token으로 새로운 Access Token 발급 (세션별 격리 지원)"""
+    # Extract session ID for session-scoped token management
+    session_id = request.cookies.get('session_id') if request else None
+    logger.info(f"🔄 Refresh token request received - session_id: {session_id}")
+    logger.info(f"🔍 Request details - endpoint: {request.url.path}, method: {request.method}")
+    
+    # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
+    try:
+        from jwt import decode
+        payload = decode(token_data.refresh_token, options={"verify_signature": False})
+        request_user_id = payload.get("sub")
+        logger.debug(f"📄 Token payload analysis - user_id: {request_user_id}")
+        
+        if request_user_id:
+            # 해당 사용자의 모든 토큰 조회
+            from uuid import UUID
+            user_uuid = UUID(request_user_id)
+            all_user_tokens = db.query(RefreshToken).filter(
+                RefreshToken.user_id == user_uuid
+            ).all()
+            
+            active_tokens = [t for t in all_user_tokens if t.is_valid()]
+            logger.debug(f"📈 Database token summary - Total: {len(all_user_tokens)}, Active: {len(active_tokens)}")
+            
+            for idx, token in enumerate(active_tokens[:3]):  # 최대 3개만 로그
+                logger.debug(f"  Active Token {idx+1}: session_id={token.session_id}, created={token.created_at}, expires={token.expires_at}")
+                
+    except Exception as debug_error:
+        logger.debug(f"🚫 Token analysis failed (non-critical): {debug_error}")
     
     if not token_data.refresh_token:
         logger.warning("No refresh token provided in request body")
@@ -613,24 +684,28 @@ async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db))
             detail="Refresh token is required in request body"
         )
     
-    token_record = verify_refresh_token(db, token_data.refresh_token)
+    token_record = verify_refresh_token(db, token_data.refresh_token, session_id)
     
     if not token_record:
-        logger.warning("Invalid refresh token provided")
+        logger.warning("❌ Invalid refresh token provided")
+        logger.debug(f"🔍 Failed verification details - session_id: {session_id}, token_prefix: {token_data.refresh_token[:10] if token_data.refresh_token else 'None'}...")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않은 refresh token입니다."
         )
     
     # 사용자 정보 조회
+    logger.debug(f"👤 Looking up user: {token_record.user_id}")
     user = get_user_by_id(db, token_record.user_id)
     if not user or not user.is_active:
+        logger.warning(f"⚠️ User lookup failed or inactive - user_id: {token_record.user_id}, found: {user is not None}, active: {user.is_active if user else False}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않은 사용자입니다."
         )
     
     # 새로운 Access Token 생성
+    logger.debug(f"🎨 Creating new access token for user: {user.id}")
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": str(user.id)}, 
@@ -638,14 +713,20 @@ async def refresh_token(token_data: TokenRefresh, db: Session = Depends(get_db))
     )
     
     # Refresh Token 사용 기록
+    logger.debug(f"📅 Updating refresh token usage record - session_id: {session_id}")
     token_record.use()
     db.commit()
     
-    return {
+    logger.info(f"✅ Token refresh successful for user: {user.id}, session: {session_id}")
+    
+    response_data = {
         "access_token": access_token,
         "token_type": "bearer",
         "expires_in": settings.access_token_expire_minutes * 60
     }
+    
+    logger.debug(f"📦 Returning token response - token_prefix: {access_token[:10]}..., expires_in: {response_data['expires_in']}s")
+    return response_data
 
 @router.post("/logout")
 async def logout(
