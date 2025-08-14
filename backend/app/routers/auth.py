@@ -660,10 +660,10 @@ async def get_current_token(
     import time
     from ..core.redis_session import get_session_store
     
-    logger.info("Current token request received for cross-domain sync")
+    logger.info(f"Current token request received for cross-domain sync, cookies: {list(request.cookies.keys())}")
     
-    # Check session cookie first
-    session_id = request.cookies.get("max_session_id")
+    # Check session cookie first (try multiple cookie names)
+    session_id = request.cookies.get("session_id") or request.cookies.get("session_token") or request.cookies.get("max_session_id")
     if not session_id:
         # Fallback to checking the request header token
         auth_header = request.headers.get("Authorization", "")
@@ -694,12 +694,10 @@ async def get_current_token(
     
     # Get session from Redis
     try:
-        session_store = get_session_store()
-        if not session_store:
-            logger.warning("Redis session store not available")
-            raise HTTPException(status_code=503, detail="Session store unavailable")
-            
-        session_data = session_store.get_session(session_id)
+        from ..core.redis_session import get_user_session, store_user_oauth_tokens
+        
+        session_data = get_user_session(session_id)
+        logger.info(f"Session data found: {bool(session_data)}, has oauth_tokens: {bool(session_data and session_data.get('oauth_tokens'))}")
         
         if session_data and session_data.get('oauth_tokens'):
             tokens = session_data['oauth_tokens']
@@ -737,7 +735,7 @@ async def get_current_token(
             
             # Store in Redis session
             if session_data:
-                session_store.store_oauth_tokens(session_id, {
+                store_user_oauth_tokens(session_id, {
                     "access_token": access_token,
                     "updated_at": datetime.utcnow().isoformat()
                 })
