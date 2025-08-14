@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Union
 from passlib.context import CryptContext
@@ -252,8 +253,13 @@ def verify_refresh_token(db: Session, refresh_token: str, session_id: str = None
             query = query.filter(RefreshToken.session_id == session_id)
         else:
             logger.debug("🌐 Using legacy token lookup (no session isolation)")
-            # 레거시 호환성: session_id가 None인 토큰만 조회
-            query = query.filter(RefreshToken.session_id.is_(None))
+            # 레거시 호환성: session_id가 None이거나 "<legacy>" 문자열인 토큰 조회
+            query = query.filter(
+                or_(
+                    RefreshToken.session_id.is_(None),
+                    RefreshToken.session_id == "<legacy>"
+                )
+            )
         
         token_record = query.first()
         
@@ -668,8 +674,8 @@ async def refresh_token(token_data: TokenRefresh, request: Request, db: Session 
     
     # 디버깅을 위한 전체 토큰 상태 조회 (발전된 디버깅)
     try:
-        # Use python-jose jwt for consistency
-        payload = jwt.decode(token_data.refresh_token, options={"verify_signature": False})
+        # Use python-jose jwt for consistency - decode without verification for debugging
+        payload = jwt.decode(token_data.refresh_token, key="", options={"verify_signature": False})
         request_user_id = payload.get("sub")
         logger.debug(f"📄 Token payload analysis - user_id: {request_user_id}")
         
