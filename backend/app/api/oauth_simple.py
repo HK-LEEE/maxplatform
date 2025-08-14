@@ -12,7 +12,7 @@ from typing import Optional, List
 from urllib.parse import urlparse, parse_qs
 from jose import jwt, JWTError
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Query, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
