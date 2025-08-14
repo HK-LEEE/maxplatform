@@ -1319,69 +1319,90 @@ async def authorize(
         if prompt == "none":
             logger.info(f"prompt=none with authenticated user: immediately generating code for {current_user.email}")
             
-            # 🔒 SECURITY: Check for user switching even in prompt=none flow
+            # 🚀 PERFORMANCE: Parallel processing for prompt=none flow
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            
             client_ip = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent", "")
-            
-            try:
-                switch_detection = user_switch_security_service.detect_user_switch(
-                    client_id=client_id,
-                    new_user_id=str(current_user.id),
-                    request_ip=client_ip,
-                    db=db
-                )
-                
-                if switch_detection["is_user_switch"] and switch_detection["requires_cleanup"]:
-                    logger.warning(f"🔒 prompt=none User switch detected: {switch_detection['switch_type']} "
-                                 f"(risk: {switch_detection['risk_level']})")
-                    
-                    # Perform security cleanup
-                    cleanup_result = user_switch_security_service.force_previous_user_cleanup(
-                        client_id=client_id,
-                        previous_user_id=switch_detection["previous_user_id"],
-                        new_user_id=str(current_user.id),
-                        reason="user_switch_prompt_none",
-                        db=db
-                    )
-                    
-                    # Create audit trail
-                    user_switch_security_service.audit_user_switch(
-                        client_id=client_id,
-                        previous_user_id=switch_detection["previous_user_id"],
-                        new_user_id=str(current_user.id),
-                        switch_type=switch_detection["switch_type"],
-                        risk_level=switch_detection["risk_level"],
-                        risk_factors=switch_detection.get("risk_factors", []),
-                        request_ip=client_ip,
-                        user_agent=user_agent,
-                        cleanup_stats=cleanup_result.get("stats"),
-                        db=db
-                    )
-                    
-            except Exception as e:
-                logger.error(f"❌ prompt=none security check failed: {str(e)}")
-            
-            # Parse requested scopes
             requested_scopes = scope.split() if scope else ["read:profile"]
             
-            # Store nonce if provided (for OIDC)
-            if nonce:
-                from ..services.nonce_service import nonce_service
-                nonce_service.store_nonce(
-                    db=db,
-                    nonce=nonce,
-                    client_id=client_id,
-                    user_id=str(current_user.id),
-                    expires_in_minutes=10
-                )
+            # Create tasks for parallel execution
+            async def run_security_check():
+                """Run security check asynchronously"""
+                try:
+                    switch_detection = user_switch_security_service.detect_user_switch(
+                        client_id=client_id,
+                        new_user_id=str(current_user.id),
+                        request_ip=client_ip,
+                        db=db
+                    )
+                    
+                    if switch_detection["is_user_switch"] and switch_detection["requires_cleanup"]:
+                        logger.warning(f"🔒 prompt=none User switch detected: {switch_detection['switch_type']} "
+                                     f"(risk: {switch_detection['risk_level']})")
+                        
+                        # Perform security cleanup
+                        cleanup_result = user_switch_security_service.force_previous_user_cleanup(
+                            client_id=client_id,
+                            previous_user_id=switch_detection["previous_user_id"],
+                            new_user_id=str(current_user.id),
+                            reason="user_switch_prompt_none",
+                            db=db
+                        )
+                        
+                        # Create audit trail
+                        user_switch_security_service.audit_user_switch(
+                            client_id=client_id,
+                            previous_user_id=switch_detection["previous_user_id"],
+                            new_user_id=str(current_user.id),
+                            switch_type=switch_detection["switch_type"],
+                            risk_level=switch_detection["risk_level"],
+                            risk_factors=switch_detection.get("risk_factors", []),
+                            request_ip=client_ip,
+                            user_agent=user_agent,
+                            cleanup_stats=cleanup_result.get("stats"),
+                            db=db
+                        )
+                except Exception as e:
+                    logger.error(f"❌ prompt=none security check failed: {str(e)}")
             
-            # Create authorization code immediately without consent checks
-            code = create_authorization_code_record(
-                client_id, str(current_user.id), redirect_uri, scope,
-                code_challenge, code_challenge_method, db,
-                nonce=nonce,
-                auth_time=datetime.utcnow()
-            )
+            async def store_nonce_async():
+                """Store nonce asynchronously if provided"""
+                if nonce:
+                    from ..services.nonce_service import nonce_service
+                    nonce_service.store_nonce(
+                        db=db,
+                        nonce=nonce,
+                        client_id=client_id,
+                        user_id=str(current_user.id),
+                        expires_in_minutes=10
+                    )
+            
+            # Run security check and nonce storage in parallel
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # Start both operations in parallel
+                tasks = []
+                tasks.append(loop.create_task(run_security_check()))
+                if nonce:
+                    tasks.append(loop.create_task(store_nonce_async()))
+                
+                # Create authorization code while other operations run
+                code = create_authorization_code_record(
+                    client_id, str(current_user.id), redirect_uri, scope,
+                    code_challenge, code_challenge_method, db,
+                    nonce=nonce,
+                    auth_time=datetime.utcnow()
+                )
+                
+                # Wait for parallel operations to complete
+                if tasks:
+                    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            finally:
+                loop.close()
             
             # Create or update OAuth session
             try:
